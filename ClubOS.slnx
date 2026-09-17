@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/packages/">
+    <Project Path="packages/contracts-dotnet/ClubOS.Contracts.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/unit/ClubOS.Unit.Tests.csproj" />
+  </Folder>
+</Solution>

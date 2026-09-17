@@ -1,0 +1,10 @@
+{
+  "name": "@clubos/contracts",
+  "version": "0.0.0",
+  "description": "Versioned contracts (TS) для Admin Web <-> Cloud API (ClubOS CA M0)",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "license": "SEE docs/THIRD_PARTY.md"
+}

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>ClubOS.Contracts</RootNamespace>
+    <AssemblyName>ClubOS.Contracts</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!--
+    Versioned контракты Cloud<->Edge и Edge<->Agent (ТЗ §4, §24).
+    Namespace-only, без внешних зависимостей: чистые DTO, envelope и enums.
+    Сериализация — System.Text.Json (входит в BCL .NET 10).
+  -->
+
+</Project>
