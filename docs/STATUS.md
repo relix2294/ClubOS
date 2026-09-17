@@ -34,9 +34,9 @@ B3 — ожидаемый и предусмотренный ТЗ блокер (�
 | docs (STATUS/DEVIATIONS/ADR/план) | ✅ готово | подготовительный проход |
 | Контракты C# + TS | ✅ написано | envelope/DTO/enums, Money, BillingCalculator; сборка на CI |
 | Unit-тесты тарифа | ✅ написано | эталон §12.4; прогон на CI |
-| CI (GitHub Actions) | 🟡 базовый | dotnet build+test; Windows-джоб ждёт Agent |
-| Cloud API | ⬜ следующий | нужен .NET 10 (B1) |
-| Edge Controller | ⬜ не начато | нужен .NET 10 (B1) |
+| CI (GitHub Actions) | 🟡 базовый | dotnet build+test; cloud-api теперь в solution; Windows-джоб ждёт Agent |
+| Cloud API | ✅ написано | auth/enrollment/sync/devices/sessions/audit/health + seed; сборка на CI (B1) |
+| Edge Controller | ⬜ следующий | нужен .NET 10 (B1) |
 | Windows Agent | ⬜ не начато | .NET 10 (B1) + Windows-тест (B3) |
 | Device Simulator | ⬜ не начато | нужен .NET 10 (B1) |
 | Admin Web | ⬜ не начато | Node есть — можно начинать |
@@ -72,6 +72,11 @@ dotnet build services\windows-agent -c Release
 
 ## 5. Следующий шаг
 
-Ожидается решение пользователя по среде (см. вопрос в чате): установить локально
-.NET 10 + Docker и собирать/тестировать здесь, либо писать M0 как готовый к сборке
-срез с проверкой на другой машине/CI. После этого — реализация Cloud API и контрактов.
+Cloud API (Слой 1) написан как готовый к сборке срез: точка входа `Program.cs`,
+эндпоинты auth/enrollment/sync/devices/sessions/audit/health, dev-seed и dev-CA.
+Проект добавлен в `ClubOS.slnx`, поэтому собирается тем же `dotnet build ClubOS.slnx`
+на CI. Локально не собрано (B1: нет .NET 10 SDK).
+
+Дальше по плану — **Слой 2, Edge Controller** (`services/edge-controller`): Worker
+Service, SQLite WAL, outbox/inbox, offline start/end сессии. Также остаётся написать
+интеграционные тесты Cloud API (Слой 6, требуют PostgreSQL/Testcontainers — B2).

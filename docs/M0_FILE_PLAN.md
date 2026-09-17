@@ -7,17 +7,17 @@
 - ✅ `packages/contracts-typescript/` — зеркальные типы для Admin Web (device, command lifecycle, session, audit).
 - ✅ `tests/unit/` — тесты `BillingCalculator` (эталон 60сек=2,00 TJS и др.) + `ClubOS.slnx` + CI `.github/workflows/ci.yml`.
 
-## Слой 1 — Cloud API (`services/cloud-api`)
-- ⬜ `ClubOS.CloudApi.csproj` (ASP.NET Core, .NET 10), модульный монолит.
-- ⬜ EF Core модель + PostgreSQL migrations: Organization, Location, Zone, User, Device, DeviceCommand, Session, SessionEvent, AuditEvent, OutboxEvent, InboxReceipt.
-- ⬜ Seed/dev bootstrap: `Demo Club Group` / `Dushanbe Pilot` / TZ `Asia/Dushanbe` / TJS / зоны `Standard`,`VIP` / dev Owner.
-- ⬜ Auth (минимальная реальная): `POST /api/v1/auth/login`, `refresh`; хэш пароля (Argon2id/эквивалент).
-- ⬜ Edge enrollment: регистрация Edge, выдача one-time enrollment token, обмен на индивидуальный cert/credential (dev CA).
-- ⬜ Sync batch приём с идемпотентностью `UNIQUE(eventId)`.
-- ⬜ Devices: list/status; `POST /devices/{id}/commands` (ShowMessage); приём результата.
-- ⬜ Sessions: start/end, расчёт тарифа 120 TJS/час, price snapshot.
-- ⬜ Audit timeline endpoint.
-- ⬜ Health endpoints + OpenAPI/Swagger.
+## Слой 1 — Cloud API (`services/cloud-api`) — ✅ написано (сборка на CI)
+- ✅ `ClubOS.CloudApi.csproj` (ASP.NET Core, .NET 10), модульный монолит; добавлен в `ClubOS.slnx`.
+- ✅ EF Core модель + PostgreSQL migration (InitialCreate): Organization, Location, Zone, User, Edge, EnrollmentToken, Device, DeviceCommand, Session, InboxReceipt, AuditEvent. (Снапшот — D-009.)
+- ✅ Seed/dev bootstrap: `Demo Club Group` / `Dushanbe Pilot` / TZ `Asia/Dushanbe` / TJS / зоны `Standard`,`VIP` / dev Owner (`DatabaseBootstrapper`, идемпотентно).
+- ✅ Auth (минимальная реальная): `POST /api/v1/auth/login`, `refresh`; хэш пароля PBKDF2 (D-007), JWT (D-008).
+- ✅ Enrollment: выдача one-time токена (`/enrollment/tokens`), обмен на индивидуальный cert через dev-CA (`/enrollment/devices`).
+- ✅ Sync batch приём с идемпотентностью `UNIQUE(eventId)` (`/sync/events`); heartbeat применяется к устройству.
+- ✅ Devices: list/status; `POST /devices/{id}/commands` (ShowMessage, allow-list); приём результата (forward-only, идемпотентно).
+- ✅ Sessions: start/end, расчёт тарифа 120 TJS/час через `BillingCalculator`, price snapshot; end идемпотентен.
+- ✅ Audit timeline endpoint (`/audit`), изоляция по организации.
+- ✅ Health endpoints (`/health/live`, `/health/ready`) + OpenAPI (`/openapi/v1.json`).
 
 ## Слой 2 — Edge Controller (`services/edge-controller`)
 - ⬜ `.NET Worker Service` (console-hostable).

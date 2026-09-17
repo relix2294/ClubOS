@@ -2,6 +2,9 @@
   <Folder Name="/packages/">
     <Project Path="packages/contracts-dotnet/ClubOS.Contracts.csproj" />
   </Folder>
+  <Folder Name="/services/">
+    <Project Path="services/cloud-api/ClubOS.CloudApi.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/unit/ClubOS.Unit.Tests.csproj" />
   </Folder>
