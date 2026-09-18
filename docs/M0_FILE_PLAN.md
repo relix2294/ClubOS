@@ -28,15 +28,15 @@
 - ✅ Start/end session при недоступном Cloud (пишется в SQLite + outbox); автосинк после восстановления; активная сессия переживает перезапуск (persist).
 - ✅ Local health (`/health/live`, `/health/ready`) + `tools/edge-cli` (offline start/end через HTTP, без прямого SQL).
 
-## Слой 3 — Windows Agent (`services/windows-agent`)
-- ⬜ `.NET Windows Service` (+ console mode для dev).
-- ⬜ Enrollment по one-time token → индивидуальный device ID.
-- ⬜ Инвентаризация: hostname, Windows version, CPU, RAM, IPv4, Agent version.
-- ⬜ Heartbeat каждые 10 сек.
-- ⬜ `AgentSessionHost` (интерактивная сессия) + Named Pipes ACL IPC.
-- ⬜ `ShowMessage` (видимое сообщение), `LockTestMode` (overlay), ack/succeeded/failed.
-- ⬜ Structured logs без секретов; корректная остановка/перезапуск.
-- ⬜ `docs/runbooks/windows-agent-install.md` — ручной тест на реальном Windows.
+## Слой 3 — Windows Agent (`services/windows-agent`) — ✅ написано (сборка на Windows CI; ручной тест — B3, завтра)
+- ✅ `.NET Windows Service` (`AddWindowsService`) + console mode для dev; net10.0-windows (вне `ClubOS.slnx`, собирает отдельный CI-джоб).
+- ✅ Enrollment по one-time token → CSR → индивидуальный deviceId + сертификат; приватный ключ хранится только локально.
+- ✅ Инвентаризация (WMI): hostname, Windows version, CPU, RAM, IPv4, версия Agent.
+- ✅ Heartbeat каждые 10 сек (в Edge), инвентаризация — при первом успешном heartbeat.
+- ✅ `AgentSessionHost` (WinForms overlay в интерактивной сессии) + Named Pipes с ACL (D-012).
+- ✅ `ShowMessage` (видимое сообщение) и `LockTestMode` (overlay, без подмены Shell — D-003); ack → succeeded/failed.
+- ✅ Логи без секретов; корректная остановка (штатная отмена цикла), идентичность переживает перезапуск.
+- ✅ `docs/runbooks/windows-agent-install.md` — сценарий ручного теста на реальном Windows.
 
 ## Слой 4 — Device Simulator (`tools/device-simulator`)
 - ⬜ 5 симулированных ПК: heartbeat, online/offline, результат ShowMessage; явная маркировка «SIMULATED».

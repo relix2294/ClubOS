@@ -37,8 +37,8 @@ B3 — ожидаемый и предусмотренный ТЗ блокер (�
 | CI (GitHub Actions) | 🟡 базовый | dotnet build+test; cloud-api теперь в solution; Windows-джоб ждёт Agent |
 | Cloud API | ✅ написано | auth/enrollment/sync/devices/sessions/audit/health + seed; сборка на CI (B1) |
 | Edge Controller | ✅ написано | SQLite WAL, durable outbox+backoff, offline start/end, local API, edge-cli; сборка на CI (B1) |
-| Windows Agent | ⬜ следующий | .NET 10 (B1) + Windows-тест (B3, ПК готов завтра) |
-| Device Simulator | ⬜ не начато | нужен .NET 10 (B1) |
+| Windows Agent | ✅ написано | служба+console, enrollment/CSR, WMI-инвентаризация, heartbeat, ShowMessage/LockTestMode overlay, Named Pipes ACL; ручной тест завтра (B3) |
+| Device Simulator | ⬜ следующий | нужен .NET 10 (B1) |
 | Admin Web | ⬜ не начато | Node есть — можно начинать |
 | docker-compose (PostgreSQL) | ⬜ не начато | нужен Docker (B2) |
 | Автотесты M0 (§5) | ⬜ не начато | зависят от B1/B2 |
@@ -79,7 +79,12 @@ Edge Controller: SQLite WAL (EnsureCreated), durable outbox с exponential backo
 идемпотентный inbox, offline start/end сессий (persist через перезапуск), локальный
 API для Agent (heartbeat/команды/результат), health-эндпоинты и `tools/edge-cli`.
 
-Дальше по плану — **Слой 3, Windows Agent** (`services/windows-agent`): код службы +
-`docs/runbooks/windows-agent-install.md`, чтобы завтра на реальном Windows-ПК (B3)
-собрать и проверить вручную. Параллельно остаются интеграционные тесты (Слой 6,
-требуют PostgreSQL/Docker — B2).
+Слой 3 (Windows Agent) написан: служба + console-режим, enrollment по one-time токену
+(CSR, приватный ключ только локально), WMI-инвентаризация, heartbeat, исполнение
+ShowMessage/LockTestMode через session-host (WinForms overlay) по named pipe с ACL.
+Проект таргетит `net10.0-windows` и собирается отдельным Windows-джобом CI (не в `ClubOS.slnx`).
+Ручная проверка на реальном Windows-ПК — завтра по `docs/runbooks/windows-agent-install.md` (B3).
+
+Дальше по плану — **Слой 4, Device Simulator** (`tools/device-simulator`): 5 симулированных
+ПК (heartbeat, online/offline, результат ShowMessage), явно помеченных «SIMULATED».
+Параллельно остаются интеграционные тесты (Слой 6, требуют PostgreSQL/Docker — B2).
