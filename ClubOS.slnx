@@ -8,6 +8,7 @@
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/edge-cli/ClubOS.EdgeCli.csproj" />
+    <Project Path="tools/device-simulator/ClubOS.DeviceSimulator.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/unit/ClubOS.Unit.Tests.csproj" />

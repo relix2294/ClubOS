@@ -38,8 +38,8 @@ B3 — ожидаемый и предусмотренный ТЗ блокер (�
 | Cloud API | ✅ написано | auth/enrollment/sync/devices/sessions/audit/health + seed; сборка на CI (B1) |
 | Edge Controller | ✅ написано | SQLite WAL, durable outbox+backoff, offline start/end, local API, edge-cli; сборка на CI (B1) |
 | Windows Agent | ✅ написано | служба+console, enrollment/CSR, WMI-инвентаризация, heartbeat, ShowMessage/LockTestMode overlay, Named Pipes ACL; ручной тест завтра (B3) |
-| Device Simulator | ⬜ следующий | нужен .NET 10 (B1) |
-| Admin Web | ⬜ не начато | Node есть — можно начинать |
+| Device Simulator | ✅ написано | 5 SIMULATED ПК против Edge: heartbeat, online/offline, ответы на команды; сборка на CI (B1) |
+| Admin Web | ⬜ следующий | Node есть — можно реально собрать здесь |
 | docker-compose (PostgreSQL) | ⬜ не начато | нужен Docker (B2) |
 | Автотесты M0 (§5) | ⬜ не начато | зависят от B1/B2 |
 
@@ -85,6 +85,10 @@ ShowMessage/LockTestMode через session-host (WinForms overlay) по named p
 Проект таргетит `net10.0-windows` и собирается отдельным Windows-джобом CI (не в `ClubOS.slnx`).
 Ручная проверка на реальном Windows-ПК — завтра по `docs/runbooks/windows-agent-install.md` (B3).
 
-Дальше по плану — **Слой 4, Device Simulator** (`tools/device-simulator`): 5 симулированных
-ПК (heartbeat, online/offline, результат ShowMessage), явно помеченных «SIMULATED».
-Параллельно остаются интеграционные тесты (Слой 6, требуют PostgreSQL/Docker — B2).
+Слой 4 (Device Simulator) написан: N (по умолчанию 5) SIMULATED ПК гоняют Edge —
+heartbeat, случайный online/offline, приём команд и рапорт результата. Добавлен в `ClubOS.slnx`.
+
+Дальше по плану — **Слой 5, Admin Web** (`apps/admin-web`): Next.js + TS, i18n (ru),
+login, дашборд локации, сетка устройств по зонам, карточка устройства, ShowMessage,
+start/end сессии, audit timeline. Node в этой среде есть — можно реально собрать и
+прогнать линт/сборку здесь. Параллельно остаются интеграционные тесты (Слой 6, B2).

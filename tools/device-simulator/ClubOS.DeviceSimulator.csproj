@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>ClubOS.DeviceSimulator</RootNamespace>
+    <AssemblyName>device-simulator</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../packages/contracts-dotnet/ClubOS.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

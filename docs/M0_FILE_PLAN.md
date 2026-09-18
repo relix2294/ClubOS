@@ -38,8 +38,8 @@
 - ✅ Логи без секретов; корректная остановка (штатная отмена цикла), идентичность переживает перезапуск.
 - ✅ `docs/runbooks/windows-agent-install.md` — сценарий ручного теста на реальном Windows.
 
-## Слой 4 — Device Simulator (`tools/device-simulator`)
-- ⬜ 5 симулированных ПК: heartbeat, online/offline, результат ShowMessage; явная маркировка «SIMULATED».
+## Слой 4 — Device Simulator (`tools/device-simulator`) — ✅ написано (сборка на CI)
+- ✅ N (по умолчанию 5) симулированных ПК против Edge: heartbeat, случайный online/offline, приём команд и рапорт результата (ShowMessage/LockTestMode → Succeeded); явная маркировка «SIMULATED» (D-005). Добавлен в `ClubOS.slnx`.
 
 ## Слой 5 — Admin Web (`apps/admin-web`)
 - ⬜ Next.js 16 + TS, i18n (ru), Tailwind/shadcn.
