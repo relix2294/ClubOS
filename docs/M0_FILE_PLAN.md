@@ -50,12 +50,12 @@
 - ✅ Loading/error/empty states; кнопки будущих модулей помечены «Недоступно в M0».
 - ⬜ Playwright smoke-тест (login → devices → карточка) — вынесен в Слой 6.
 
-## Слой 6 — Инфраструктура и тесты
-- ⬜ `docker-compose.yml` — PostgreSQL 18 (+ dev deps).
-- ⬜ `.env.example` — только имена и безопасные примеры, без секретов.
-- ⬜ `tests/unit` — тариф (60 сек=2 TJS), повторный EndSession, повторный sync, expired command.
-- ⬜ `tests/integration` — PostgreSQL (Testcontainers), tenant isolation, outbox persist/clear, edge restart восстановление.
-- ⬜ `tests/e2e` — Playwright smoke: login → devices → карточка.
-- ⬜ `docs/THIRD_PARTY.md` — лицензии зависимостей.
-- ⬜ `README.md` — запуск dev + отдельная установка Agent на Windows.
-- ⬜ GitHub Actions: lint → unit → integration → build (+ Windows runner для Agent).
+## Слой 6 — Инфраструктура и тесты — 🟡 в основном готово
+- ✅ `docker-compose.yml` — PostgreSQL 18.
+- ✅ `.env.example` — имена и безопасные примеры, без секретов.
+- ✅ `tests/unit` — тариф (60 сек=2 TJS, эталон §12.4) + машина состояний команды (forward-only, expired терминален).
+- 🟡 `tests/integration` — PostgreSQL (Testcontainers): login, повторный EndSession (идемпотентность), повторный sync (дедуп), forward-only результата команды, tenant isolation. ⬜ Edge outbox persist/restart — отдельный тест-хост Edge, позже.
+- ✅ `tests/e2e` — Playwright smoke (login → devices → карточка); запускается вручную при поднятом стеке (в CI пока не подключён).
+- ✅ `docs/THIRD_PARTY.md` — лицензии зависимостей.
+- ✅ `README.md` — запуск dev + отдельная установка Agent на Windows.
+- ✅ GitHub Actions: admin-web (lint+build) · dotnet (build → unit → integration) · windows-agent (Windows build).

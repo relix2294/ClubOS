@@ -12,5 +12,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/unit/ClubOS.Unit.Tests.csproj" />
+    <Project Path="tests/integration/ClubOS.Integration.Tests.csproj" />
   </Folder>
 </Solution>

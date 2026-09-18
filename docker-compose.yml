@@ -1,0 +1,22 @@
+# Dev-инфраструктура ClubOS (ТЗ §25.2, §25.3). Только для локальной разработки.
+# Запуск: cp .env.example .env && docker compose up -d
+services:
+  postgres:
+    image: postgres:18
+    container_name: clubos-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-clubos}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clubos_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-clubos}
+    ports:
+      - "5432:5432"
+    volumes:
+      - clubos-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clubos} -d ${POSTGRES_DB:-clubos}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  clubos-pgdata:

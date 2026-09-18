@@ -94,3 +94,6 @@ app.Run();
 static bool IsEfDesignTime() =>
     AppDomain.CurrentDomain.GetAssemblies()
         .Any(a => a.GetName().Name == "Microsoft.EntityFrameworkCore.Design");
+
+// Открываем Program для интеграционных тестов (WebApplicationFactory<Program>).
+public partial class Program;

@@ -1,7 +1,7 @@
 # STATUS — ClubOS CA, Milestone 0
 
-**Обновлено:** 2026-09-17
-**Фаза:** Реализация M0 начата. Решение по среде: код пишется как готовый к сборке срез, проверка на CI/другой машине (.NET 10 + Docker + Windows). Локально (macOS, .NET 2.1) сборка не выполняется — помечается «не собрано здесь».
+**Обновлено:** 2026-09-18
+**Фаза:** Все 6 слоёв M0 написаны. Admin Web собран в этой среде (lint+build). Backend (.NET 10) и интеграционные/e2e тесты — готовый к сборке срез, проверка на CI (Docker) и, для Agent, на реальном Windows-ПК (B3). То, что не собрано здесь, помечается явно.
 
 ---
 
@@ -45,23 +45,27 @@ B3 — ожидаемый и предусмотренный ТЗ блокер (�
 | Windows Agent | ✅ написано | служба+console, enrollment/CSR, WMI-инвентаризация, heartbeat, ShowMessage/LockTestMode overlay, Named Pipes ACL; ручной тест завтра (B3) |
 | Device Simulator | ✅ написано | 5 SIMULATED ПК против Edge: heartbeat, online/offline, ответы на команды; сборка на CI (B1) |
 | Admin Web | ✅ написано+собрано | Next.js 16/TS/Tailwind, login, дашборд, карточка, ShowMessage, сессии, аудит; **lint+build проходят здесь** и в CI |
-| docker-compose (PostgreSQL) | ⬜ следующий | нужен Docker (B2) |
-| Автотесты M0 (§5) | ⬜ не начато | зависят от B1/B2 |
+| docker-compose (PostgreSQL) | ✅ написано | PostgreSQL 18 + .env.example |
+| Автотесты M0 (§5) | 🟡 в основном | unit (тариф, машина команд) + integration (Testcontainers) + e2e smoke (Playwright); прогон на CI (B1/B2) |
 
 ## 4. Команды проверки (зафиксированы, будут работать после снятия B1/B2)
 
 Backend (после установки .NET 10):
 ```bash
-dotnet restore ClubOS.sln
-dotnet build ClubOS.sln -c Release
-dotnet test tests/unit
-dotnet test tests/integration   # требует PostgreSQL (Testcontainers/Docker, B2)
+dotnet restore ClubOS.slnx
+dotnet build ClubOS.slnx -c Release
+dotnet test tests/unit/ClubOS.Unit.Tests.csproj
+dotnet test tests/integration/ClubOS.Integration.Tests.csproj   # PostgreSQL через Testcontainers (Docker, B2)
 ```
 
-Frontend:
+Frontend (проверено в этой среде — проходит):
 ```bash
 cd apps/admin-web && npm install && npm run lint && npm run build
-npx playwright test                # smoke: login → devices → карточка
+```
+
+E2E (нужен поднятый стек):
+```bash
+cd tests/e2e && npm install && npx playwright test   # smoke: login → devices → карточка
 ```
 
 Инфраструктура:
@@ -97,7 +101,13 @@ TypeScript strict, Tailwind v4, i18n (ru). Экраны: login, дашборд �
 Добавлен CI-джоб `admin-web` (npm ci → lint → build). Для дашборда в Cloud добавлен
 эндпоинт `GET /api/v1/locations` (локации + зоны).
 
-Дальше по плану — **Слой 6, инфраструктура и тесты**: `docker-compose.yml` (PostgreSQL 18),
-`.env.example`, unit-тесты Cloud (повторный EndSession, повторный sync, expired command),
-интеграционные тесты (Testcontainers, tenant isolation, outbox), Playwright smoke, README,
-THIRD_PARTY. Часть требует Docker/PostgreSQL (B2).
+Слой 6 (инфраструктура и тесты) в основном готов: `docker-compose.yml` (PostgreSQL 18),
+`.env.example`, unit-тесты (тариф + машина состояний команды), интеграционные тесты
+Cloud на Testcontainers (login, идемпотентный EndSession, дедуп sync, forward-only команды,
+изоляция арендаторов), Playwright smoke, `README.md`, `docs/THIRD_PARTY.md`. CI расширен
+джобами admin-web / dotnet (build→unit→integration) / windows-agent.
+
+Все 6 слоёв M0 написаны. Остаётся **прогнать полный CI** (открыть PR — снимет B1 для
+сборки/тестов .NET и запустит интеграционные тесты на Docker раннера) и **ручной тест
+Windows Agent** на реальном ПК (B3, завтра). Возможные доработки: интеграционный тест
+Edge (outbox persist/restart), подключение e2e в CI.
