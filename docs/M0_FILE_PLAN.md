@@ -41,13 +41,14 @@
 ## Слой 4 — Device Simulator (`tools/device-simulator`) — ✅ написано (сборка на CI)
 - ✅ N (по умолчанию 5) симулированных ПК против Edge: heartbeat, случайный online/offline, приём команд и рапорт результата (ShowMessage/LockTestMode → Succeeded); явная маркировка «SIMULATED» (D-005). Добавлен в `ClubOS.slnx`.
 
-## Слой 5 — Admin Web (`apps/admin-web`)
-- ⬜ Next.js 16 + TS, i18n (ru), Tailwind/shadcn.
-- ⬜ Login, Dashboard локации, карта/сетка устройств (зоны Standard/VIP).
-- ⬜ Статус цвет+текст/иконка (не только цвет); карточка устройства с инвентаризацией и last heartbeat.
-- ⬜ Отправка ShowMessage; отображение жизненного цикла команды.
-- ⬜ Start/End test session; текущая длительность и стоимость; audit timeline.
-- ⬜ Loading/error/empty states; кнопки будущих модулей помечены `Not implemented in M0`.
+## Слой 5 — Admin Web (`apps/admin-web`) — ✅ написано (lint+build проходят локально и в CI)
+- ✅ Next.js 16 + TS + Tailwind v4, i18n (ru); shadcn не используется (D-014).
+- ✅ Login (JWT), Dashboard локации, сетка устройств по зонам (через `/api/v1/locations`).
+- ✅ Статус цвет+текст+иконка; карточка устройства с инвентаризацией и last heartbeat.
+- ✅ Отправка ShowMessage; отображение жизненного цикла команды (поллинг).
+- ✅ Start/End сессии; live длительность и стоимость (расчёт как в `BillingCalculator`); audit timeline.
+- ✅ Loading/error/empty states; кнопки будущих модулей помечены «Недоступно в M0».
+- ⬜ Playwright smoke-тест (login → devices → карточка) — вынесен в Слой 6.
 
 ## Слой 6 — Инфраструктура и тесты
 - ⬜ `docker-compose.yml` — PostgreSQL 18 (+ dev deps).

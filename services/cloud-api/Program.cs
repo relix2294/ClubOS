@@ -82,6 +82,7 @@ app.MapGet("/", () => Results.Ok(new
 
 app.MapHealthEndpoints();
 app.MapAuthEndpoints();
+app.MapLocationEndpoints();
 app.MapEnrollmentEndpoints();
 app.MapSyncEndpoints();
 app.MapDeviceEndpoints();
