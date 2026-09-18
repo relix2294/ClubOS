@@ -36,8 +36,8 @@ B3 — ожидаемый и предусмотренный ТЗ блокер (�
 | Unit-тесты тарифа | ✅ написано | эталон §12.4; прогон на CI |
 | CI (GitHub Actions) | 🟡 базовый | dotnet build+test; cloud-api теперь в solution; Windows-джоб ждёт Agent |
 | Cloud API | ✅ написано | auth/enrollment/sync/devices/sessions/audit/health + seed; сборка на CI (B1) |
-| Edge Controller | ⬜ следующий | нужен .NET 10 (B1) |
-| Windows Agent | ⬜ не начато | .NET 10 (B1) + Windows-тест (B3) |
+| Edge Controller | ✅ написано | SQLite WAL, durable outbox+backoff, offline start/end, local API, edge-cli; сборка на CI (B1) |
+| Windows Agent | ⬜ следующий | .NET 10 (B1) + Windows-тест (B3, ПК готов завтра) |
 | Device Simulator | ⬜ не начато | нужен .NET 10 (B1) |
 | Admin Web | ⬜ не начато | Node есть — можно начинать |
 | docker-compose (PostgreSQL) | ⬜ не начато | нужен Docker (B2) |
@@ -72,11 +72,14 @@ dotnet build services\windows-agent -c Release
 
 ## 5. Следующий шаг
 
-Cloud API (Слой 1) написан как готовый к сборке срез: точка входа `Program.cs`,
-эндпоинты auth/enrollment/sync/devices/sessions/audit/health, dev-seed и dev-CA.
-Проект добавлен в `ClubOS.slnx`, поэтому собирается тем же `dotnet build ClubOS.slnx`
-на CI. Локально не собрано (B1: нет .NET 10 SDK).
+Слои 1 (Cloud API) и 2 (Edge Controller) написаны как готовые к сборке срезы и
+добавлены в `ClubOS.slnx`. Локально не собрано (B1: нет .NET 10 SDK) — проверка на CI.
 
-Дальше по плану — **Слой 2, Edge Controller** (`services/edge-controller`): Worker
-Service, SQLite WAL, outbox/inbox, offline start/end сессии. Также остаётся написать
-интеграционные тесты Cloud API (Слой 6, требуют PostgreSQL/Testcontainers — B2).
+Edge Controller: SQLite WAL (EnsureCreated), durable outbox с exponential backoff,
+идемпотентный inbox, offline start/end сессий (persist через перезапуск), локальный
+API для Agent (heartbeat/команды/результат), health-эндпоинты и `tools/edge-cli`.
+
+Дальше по плану — **Слой 3, Windows Agent** (`services/windows-agent`): код службы +
+`docs/runbooks/windows-agent-install.md`, чтобы завтра на реальном Windows-ПК (B3)
+собрать и проверить вручную. Параллельно остаются интеграционные тесты (Слой 6,
+требуют PostgreSQL/Docker — B2).

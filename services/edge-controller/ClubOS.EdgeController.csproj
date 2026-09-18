@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>ClubOS.EdgeController</RootNamespace>
+    <AssemblyName>ClubOS.EdgeController</AssemblyName>
+    <UserSecretsId>clubos-edge-controller</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../packages/contracts-dotnet/ClubOS.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

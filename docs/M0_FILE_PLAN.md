@@ -19,14 +19,14 @@
 - ✅ Audit timeline endpoint (`/audit`), изоляция по организации.
 - ✅ Health endpoints (`/health/live`, `/health/ready`) + OpenAPI (`/openapi/v1.json`).
 
-## Слой 2 — Edge Controller (`services/edge-controller`)
-- ⬜ `.NET Worker Service` (console-hostable).
-- ⬜ SQLite WAL: devices, sessions, event log, outbox, inbox receipts, commands/results, cached config.
-- ⬜ Исходящее соединение с Cloud (gRPC/WebSocket поверх защищённого канала).
-- ⬜ Локальный API/gRPC для Agent + heartbeat processing.
-- ⬜ Durable outbox с retry/backoff; идемпотентный inbox.
-- ⬜ Start/end session при недоступном Cloud; автосинк после восстановления; restart не теряет активную сессию.
-- ⬜ Local health endpoint + `edge-cli` для offline start/end (без прямого SQL).
+## Слой 2 — Edge Controller (`services/edge-controller`) — ✅ написано (сборка на CI)
+- ✅ ASP.NET-хост (console-hostable) + фоновый `OutboxSyncService`; добавлен в `ClubOS.slnx`.
+- ✅ SQLite WAL (`EnsureCreated`, D-011): outbox, inbox, sessions, commands, devices, config.
+- ✅ Исходящее соединение с Cloud — HTTP POST `/api/v1/sync/events` (D-010 вместо gRPC/WebSocket).
+- ✅ Локальный API для Agent: heartbeat, приём команд (идемпотентно), выдача команд, приём результата.
+- ✅ Durable outbox с retry/exponential backoff; идемпотентный inbox по `commandId`.
+- ✅ Start/end session при недоступном Cloud (пишется в SQLite + outbox); автосинк после восстановления; активная сессия переживает перезапуск (persist).
+- ✅ Local health (`/health/live`, `/health/ready`) + `tools/edge-cli` (offline start/end через HTTP, без прямого SQL).
 
 ## Слой 3 — Windows Agent (`services/windows-agent`)
 - ⬜ `.NET Windows Service` (+ console mode для dev).
