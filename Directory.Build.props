@@ -6,6 +6,11 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Аудит NuGet (NU19xx) по транзитивным зависимостям не блокирует сборку M0:
+         уязвимости отслеживаются в логах, но устраняются апгрейдом апстрима, а не
+         прямым pin'ом в M0 (см. docs/DEVIATIONS.md D-015). Компиляторные предупреждения
+         по-прежнему = ошибки. -->
+    <WarningsNotAsErrors>NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <InvariantGlobalization>true</InvariantGlobalization>
