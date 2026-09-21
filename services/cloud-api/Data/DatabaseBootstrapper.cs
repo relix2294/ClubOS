@@ -6,8 +6,9 @@ using Microsoft.EntityFrameworkCore;
 namespace ClubOS.CloudApi.Data;
 
 /// <summary>
-/// Применение миграций и dev-seed (ТЗ §25.2.3). Seed идемпотентен: выполняется только
-/// если БД пуста. Демо-набор: Demo Club Group / Dushanbe Pilot / Asia/Dushanbe / TJS /
+/// Создание схемы и dev-seed (ТЗ §25.2.3). На M0 схема создаётся из модели через
+/// EnsureCreated (D-009) — без EF-миграций. Seed идемпотентен: выполняется только если
+/// БД пуста. Демо-набор: Demo Club Group / Dushanbe Pilot / Asia/Dushanbe / TJS /
 /// зоны Standard, VIP / dev Owner.
 /// </summary>
 public static class DatabaseBootstrapper
@@ -19,7 +20,7 @@ public static class DatabaseBootstrapper
         string ownerPassword,
         CancellationToken cancellationToken = default)
     {
-        await db.Database.MigrateAsync(cancellationToken);
+        await db.Database.EnsureCreatedAsync(cancellationToken);
 
         if (await db.Organizations.AnyAsync(cancellationToken))
         {
