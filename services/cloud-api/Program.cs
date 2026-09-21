@@ -1,4 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Text;
 using ClubOS.CloudApi.Auth;
 using ClubOS.CloudApi.Data;
@@ -7,9 +6,6 @@ using ClubOS.CloudApi.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-
-// Не переименовывать claim-типы на входе: оставляем "sub"/"org"/"role" как есть.
-JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -39,6 +35,10 @@ builder.Services.AddSingleton<DevCertificateAuthority>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
+        // Не переименовывать claim-типы на входе (JsonWebTokenHandler по умолчанию
+        // мапит "sub" → nameidentifier и т.д.): оставляем "sub"/"org"/"role" как есть,
+        // чтобы Caller.From находил их по исходным именам.
+        options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
