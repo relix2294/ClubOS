@@ -2,7 +2,16 @@
   <Folder Name="/packages/">
     <Project Path="packages/contracts-dotnet/ClubOS.Contracts.csproj" />
   </Folder>
+  <Folder Name="/services/">
+    <Project Path="services/cloud-api/ClubOS.CloudApi.csproj" />
+    <Project Path="services/edge-controller/ClubOS.EdgeController.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/edge-cli/ClubOS.EdgeCli.csproj" />
+    <Project Path="tools/device-simulator/ClubOS.DeviceSimulator.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/unit/ClubOS.Unit.Tests.csproj" />
+    <Project Path="tests/integration/ClubOS.Integration.Tests.csproj" />
   </Folder>
 </Solution>

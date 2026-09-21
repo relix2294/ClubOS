@@ -7,6 +7,28 @@ on:
     branches: [main]
 
 jobs:
+  # Admin Web: lint + production build (ТЗ §30: lint -> build).
+  admin-web:
+    name: Admin Web lint & build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/admin-web
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/admin-web/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
+
   # Сборка и unit/contract-тесты backend (ТЗ §30: lint -> unit -> build).
   dotnet:
     name: .NET build & unit tests
@@ -23,11 +45,13 @@ jobs:
         run: dotnet build ClubOS.slnx -c Release --no-restore
       - name: Unit tests
         run: dotnet test tests/unit/ClubOS.Unit.Tests.csproj -c Release --no-build --logger "trx;LogFileName=unit.trx"
+      - name: Integration tests (PostgreSQL via Testcontainers/Docker)
+        run: dotnet test tests/integration/ClubOS.Integration.Tests.csproj -c Release --no-build --logger "trx;LogFileName=integration.trx"
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: unit-test-results
+          name: dotnet-test-results
           path: "**/*.trx"
 
   # Windows Agent должен компилироваться на Windows runner (ТЗ §5 п.10, §30).
