@@ -9,11 +9,13 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
     public DbSet<Location> Locations => Set<Location>();
     public DbSet<Zone> Zones => Set<Zone>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<Edge> Edges => Set<Edge>();
     public DbSet<EnrollmentToken> EnrollmentTokens => Set<EnrollmentToken>();
     public DbSet<Device> Devices => Set<Device>();
     public DbSet<DeviceCommand> DeviceCommands => Set<DeviceCommand>();
     public DbSet<Session> Sessions => Set<Session>();
+    public DbSet<EdgeOutboxItem> EdgeOutbox => Set<EdgeOutboxItem>();
     public DbSet<InboxReceipt> InboxReceipts => Set<InboxReceipt>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
@@ -30,6 +32,7 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.ToTable("locations");
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.OrganizationId);
+            e.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<Zone>(e =>
@@ -37,6 +40,8 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.ToTable("zones");
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.LocationId);
+            e.Property(x => x.Rounding).HasConversion<string>();
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<User>(e =>
@@ -45,6 +50,16 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.Email).IsUnique();
             e.HasIndex(x => x.OrganizationId);
+            e.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<RefreshToken>(e =>
+        {
+            e.ToTable("refresh_tokens");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.TokenHash).IsUnique();
+            e.HasIndex(x => x.UserId);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<Edge>(e =>
@@ -52,6 +67,7 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.ToTable("edges");
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.LocationId);
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<EnrollmentToken>(e =>
@@ -65,27 +81,41 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
         {
             e.ToTable("devices");
             e.HasKey(x => x.Id);
-            e.HasIndex(x => x.LocationId);
+            e.HasIndex(x => new { x.TenantId, x.LocationId });
             e.Property(x => x.Status).HasConversion<string>();
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Zone>().WithMany().HasForeignKey(x => x.ZoneId).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<DeviceCommand>(e =>
         {
             e.ToTable("device_commands");
-            e.HasKey(x => x.Id);
-            e.HasIndex(x => x.DeviceId);
+            e.HasKey(x => x.Id); // UNIQUE(commandId) — повтор не создаёт вторую команду (CMD-002)
+            e.HasIndex(x => new { x.DeviceId, x.IssuedAtUtc });
+            e.HasIndex(x => new { x.State, x.ExpiresAtUtc });
             e.Property(x => x.CommandType).HasConversion<string>();
             e.Property(x => x.State).HasConversion<string>();
             e.Property(x => x.PayloadJson).HasColumnType("jsonb");
+            e.HasOne<Device>().WithMany().HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<Session>(e =>
         {
             e.ToTable("sessions");
             e.HasKey(x => x.Id);
-            e.HasIndex(x => x.DeviceId);
+            e.HasIndex(x => new { x.DeviceId, x.RequestedAtUtc });
             e.Property(x => x.State).HasConversion<string>();
             e.Property(x => x.Rounding).HasConversion<string>();
+            e.HasOne<Device>().WithMany().HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<EdgeOutboxItem>(e =>
+        {
+            e.ToTable("edge_outbox");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.LocationId, x.AckedAtUtc, x.CreatedAtUtc });
+            e.Property(x => x.Kind).HasConversion<string>();
+            e.Property(x => x.PayloadJson).HasColumnType("jsonb");
         });
 
         b.Entity<InboxReceipt>(e =>
@@ -99,9 +129,9 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
         {
             e.ToTable("audit_events");
             e.HasKey(x => x.Id);
-            e.HasIndex(x => x.TenantId);
-            e.HasIndex(x => x.OccurredAtUtc);
-            e.Property(x => x.BeforeAfterJson).HasColumnType("jsonb");
+            e.HasIndex(x => new { x.TenantId, x.OccurredAtUtc });
+            e.HasIndex(x => x.Target);
+            e.Property(x => x.DetailsJson).HasColumnType("jsonb");
         });
     }
 }

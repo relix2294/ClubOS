@@ -14,6 +14,9 @@ public static class PasswordHasher
     private const int Iterations = 210_000;
     private static readonly HashAlgorithmName Algo = HashAlgorithmName.SHA256;
 
+    /// <summary>Хэш случайного пароля — для выравнивания времени ответа при неизвестном email.</summary>
+    public static string DummyHash { get; } = Hash(Convert.ToBase64String(RandomNumberGenerator.GetBytes(18)));
+
     public static string Hash(string password)
     {
         ArgumentException.ThrowIfNullOrEmpty(password);

@@ -1,0 +1,193 @@
+using Microsoft.Data.Sqlite;
+
+namespace ClubOS.EdgeController.Storage;
+
+/// <summary>
+/// SQLite в режиме WAL (ТЗ §7.1, DEVIATIONS D-001). Все записи сериализуются через один
+/// семафор (один процесс Edge) — без SQLITE_BUSY; чтения идут параллельно благодаря WAL.
+/// Схема версионируется через PRAGMA user_version.
+/// </summary>
+public sealed class EdgeDatabase : IDisposable
+{
+    private readonly string _connectionString;
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
+
+    public EdgeDatabase(string dataPath)
+    {
+        Directory.CreateDirectory(dataPath);
+        FilePath = Path.Combine(dataPath, "edge.db");
+        _connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = FilePath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Cache = SqliteCacheMode.Private,
+            Pooling = true,
+            DefaultTimeout = 30
+        }.ToString();
+        Migrate();
+    }
+
+    public string FilePath { get; }
+
+    public SqliteConnection Open()
+    {
+        var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA synchronous = FULL;";
+        cmd.ExecuteNonQuery();
+        return connection;
+    }
+
+    /// <summary>Выполняет запись в транзакции под глобальной блокировкой записи.</summary>
+    public async Task<T> WriteAsync<T>(Func<SqliteConnection, SqliteTransaction, T> work, CancellationToken ct = default)
+    {
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            using var connection = Open();
+            using var tx = connection.BeginTransaction();
+            var result = work(connection, tx);
+            tx.Commit();
+            return result;
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    public T Read<T>(Func<SqliteConnection, T> work)
+    {
+        using var connection = Open();
+        return work(connection);
+    }
+
+    public void Dispose()
+    {
+        _writeLock.Dispose();
+        SqliteConnection.ClearAllPools();
+    }
+
+    private void Migrate()
+    {
+        using var connection = Open();
+        using (var wal = connection.CreateCommand())
+        {
+            wal.CommandText = "PRAGMA journal_mode = WAL;";
+            wal.ExecuteNonQuery();
+        }
+
+        var version = Convert.ToInt32(Scalar(connection, "PRAGMA user_version;"));
+        if (version < 1)
+        {
+            using var tx = connection.BeginTransaction();
+            Exec(connection, tx, Schema.V1);
+            Exec(connection, tx, "PRAGMA user_version = 1;");
+            tx.Commit();
+        }
+    }
+
+    private static object? Scalar(SqliteConnection c, string sql)
+    {
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = sql;
+        return cmd.ExecuteScalar();
+    }
+
+    private static void Exec(SqliteConnection c, SqliteTransaction tx, string sql)
+    {
+        using var cmd = c.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = sql;
+        cmd.ExecuteNonQuery();
+    }
+
+    private static class Schema
+    {
+        public const string V1 = """
+            CREATE TABLE kv (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
+            -- Кэш конфигурации локации (нужен для offline-сессий).
+            CREATE TABLE zones (
+                zone_id                    TEXT PRIMARY KEY,
+                name                       TEXT NOT NULL,
+                price_per_hour_minor_units INTEGER NOT NULL,
+                rounding                   TEXT NOT NULL,
+                rule_version               INTEGER NOT NULL
+            );
+
+            CREATE TABLE devices (
+                device_id          TEXT PRIMARY KEY,
+                display_name       TEXT NOT NULL,
+                zone_id            TEXT NOT NULL,
+                simulated          INTEGER NOT NULL DEFAULT 0,
+                certificate_pem    TEXT NOT NULL,
+                online             INTEGER NOT NULL DEFAULT 0,
+                agent_status       TEXT NOT NULL DEFAULT 'Offline',
+                last_heartbeat_utc TEXT NULL,
+                clock_skew_ms      INTEGER NULL,
+                inventory_json     TEXT NULL
+            );
+
+            -- Сессии. Edge — источник истины для активной сессии (ТЗ §23.3).
+            CREATE TABLE sessions (
+                session_id                 TEXT PRIMARY KEY,
+                device_id                  TEXT NOT NULL,
+                state                      TEXT NOT NULL,
+                origin                     TEXT NOT NULL,
+                started_at_utc             TEXT NOT NULL,
+                ended_at_utc               TEXT NULL,
+                price_per_hour_minor_units INTEGER NOT NULL,
+                currency                   TEXT NOT NULL,
+                rounding                   TEXT NOT NULL,
+                rule_version               INTEGER NOT NULL,
+                total_minor_units          INTEGER NULL,
+                started_by                 TEXT NOT NULL,
+                ended_by                   TEXT NULL,
+                correlation_id             TEXT NOT NULL
+            );
+            -- Не больше одной активной сессии на устройство — гарантия на уровне БД.
+            CREATE UNIQUE INDEX ux_sessions_active_device ON sessions(device_id) WHERE state = 'Active';
+
+            -- Durable outbox событий Edge → Cloud (at-least-once). seq = монотонная sequence локации.
+            CREATE TABLE outbox (
+                seq             INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id        TEXT NOT NULL UNIQUE,
+                event_type      TEXT NOT NULL,
+                aggregate_id    TEXT NOT NULL,
+                occurred_at_utc TEXT NOT NULL,
+                recorded_at_utc TEXT NOT NULL,
+                correlation_id  TEXT NULL,
+                payload_json    TEXT NOT NULL,
+                sent_at_utc     TEXT NULL,
+                rejected_reason TEXT NULL,
+                attempts        INTEGER NOT NULL DEFAULT 0,
+                last_error      TEXT NULL
+            );
+            CREATE INDEX ix_outbox_pending ON outbox(sent_at_utc, seq);
+
+            -- Идемпотентный inbox команд Cloud → Edge.
+            CREATE TABLE inbox (
+                id              TEXT PRIMARY KEY,
+                kind            TEXT NOT NULL,
+                received_at_utc TEXT NOT NULL
+            );
+
+            CREATE TABLE device_commands (
+                command_id      TEXT PRIMARY KEY,
+                device_id       TEXT NOT NULL,
+                command_type    TEXT NOT NULL,
+                envelope_json   TEXT NOT NULL,
+                expires_at_utc  TEXT NOT NULL,
+                state           TEXT NOT NULL,
+                error           TEXT NULL,
+                updated_at_utc  TEXT NOT NULL
+            );
+            CREATE INDEX ix_device_commands_device ON device_commands(device_id, state);
+            """;
+    }
+}

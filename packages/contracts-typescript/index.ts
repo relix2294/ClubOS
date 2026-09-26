@@ -1,5 +1,6 @@
 // Versioned контракты Admin Web <-> Cloud API (ClubOS CA, M0).
-// Зеркало ClubOS.Contracts (C#). При изменении — синхронно править обе стороны (ТЗ §4, §24).
+// Зеркало services/cloud-api/Api/Dtos.cs и ClubOS.Contracts (C#).
+// При изменении — синхронно править обе стороны (ТЗ §4, §24).
 
 export const SchemaVersions = {
   event: 1,
@@ -32,6 +33,7 @@ export interface DeviceInventory {
 export interface DeviceView {
   deviceId: string;
   displayName: string;
+  locationId: string;
   zoneId: string;
   zoneName: string;
   status: DeviceStatus;
@@ -39,6 +41,8 @@ export interface DeviceView {
   simulated: boolean;
   lastHeartbeatUtc: string | null;
   inventory: DeviceInventory | null;
+  enrolledAtUtc: string;
+  activeSession: SessionView | null;
 }
 
 // ---- Команды (ТЗ §10.2, §24.3) ----
@@ -54,9 +58,26 @@ export type CommandState =
   | "Expired"
   | "Cancelled";
 
+export const TerminalCommandStates: readonly CommandState[] = ["Succeeded", "Failed", "Expired", "Cancelled"];
+
 export interface ShowMessagePayload {
   title: string;
   message: string;
+}
+
+export interface LockTestModePayload {
+  lock: boolean;
+  reason?: string | null;
+}
+
+export interface IssueCommandRequest {
+  commandType: CommandType;
+  title?: string;
+  message?: string;
+  lock?: boolean;
+  reason?: string;
+  ttlSeconds?: number;
+  commandId?: string;
 }
 
 export interface CommandView {
@@ -67,7 +88,9 @@ export interface CommandView {
   issuedBy: string;
   issuedAtUtc: string;
   expiresAtUtc: string;
+  updatedAtUtc: string;
   error: string | null;
+  payload: ShowMessagePayload | LockTestModePayload;
 }
 
 // ---- Сессии (ТЗ §12) ----
@@ -84,17 +107,27 @@ export type SessionState =
   | "Cancelled"
   | "Failed";
 
-export interface SessionSummary {
+export type RoundingRule = "CeilingPerMinute";
+
+export interface SessionView {
   sessionId: string;
   deviceId: string;
   state: SessionState;
-  startedAtUtc: string;
+  /** "cloud" — из Admin Web; "edge" — начата локально на Edge (offline / edge-cli). */
+  origin: string;
+  requestedAtUtc: string;
+  startedAtUtc: string | null;
+  endRequestedAtUtc: string | null;
   endedAtUtc: string | null;
   /** Цена за час в минимальных единицах (12000 = 120,00 TJS/час). */
   pricePerHourMinorUnits: number;
   currency: string;
+  rounding: RoundingRule;
   /** Итоговая стоимость в минимальных единицах (после завершения). */
   totalMinorUnits: number | null;
+  failureReason: string | null;
+  startedBy: string;
+  endedBy: string | null;
 }
 
 // ---- Audit (ТЗ §27.4) ----
@@ -103,27 +136,105 @@ export interface AuditEventView {
   auditId: string;
   occurredAtUtc: string;
   actor: string;
+  actorDisplay: string;
   action: string;
   target: string;
   result: string;
   correlationId: string | null;
+  details: Record<string, unknown> | null;
 }
 
-// ---- Auth ----
+// ---- Auth / организация ----
 
 export interface LoginRequest {
   email: string;
   password: string;
 }
 
+export interface UserView {
+  userId: string;
+  email: string;
+  displayName: string;
+  role: string;
+  organizationId: string;
+  organizationName: string;
+}
+
 export interface LoginResponse {
   accessToken: string;
   expiresAtUtc: string;
+  refreshToken: string;
+  refreshExpiresAtUtc: string;
+  user: UserView;
 }
+
+export interface ZoneView {
+  zoneId: string;
+  name: string;
+  pricePerHourMinorUnits: number;
+}
+
+export interface EdgeView {
+  edgeId: string;
+  name: string;
+  online: boolean;
+  lastSeenAtUtc: string | null;
+  pendingOutboxEvents: number;
+  enrolledAtUtc: string;
+  certificateExpiresAtUtc: string;
+}
+
+export interface LocationView {
+  locationId: string;
+  name: string;
+  timezone: string;
+  currency: string;
+  zones: ZoneView[];
+  edges: EdgeView[];
+}
+
+export interface MeResponse {
+  user: UserView;
+  locations: LocationView[];
+}
+
+// ---- Enrollment ----
+
+export interface DeviceEnrollmentTokenRequest {
+  locationId: string;
+  zoneId: string;
+  displayName: string;
+  simulated?: boolean;
+}
+
+export interface EdgeEnrollmentTokenRequest {
+  locationId: string;
+  name: string;
+}
+
+export interface EnrollmentTokenResponse {
+  enrollmentToken: string;
+  expiresAtUtc: string;
+}
+
+// ---- Деньги и тариф ----
 
 /** Форматирует минимальные единицы в строку, напр. 200 -> "2,00". */
 export function formatMinorUnits(minorUnits: number): string {
-  const whole = Math.trunc(minorUnits / 100);
-  const frac = Math.abs(minorUnits % 100);
-  return `${whole},${String(frac).padStart(2, "0")}`;
+  const sign = minorUnits < 0 ? "-" : "";
+  const abs = Math.abs(minorUnits);
+  const whole = Math.trunc(abs / 100);
+  const frac = abs % 100;
+  return `${sign}${whole},${String(frac).padStart(2, "0")}`;
+}
+
+/**
+ * Зеркало BillingCalculator (C#) для отображения текущей стоимости активной сессии.
+ * Итог сессии всегда считает Edge; это значение — только предварительное отображение.
+ */
+export function calculateMinorUnits(pricePerHourMinorUnits: number, elapsedMs: number): number {
+  if (elapsedMs <= 0) return 0;
+  const totalSeconds = Math.ceil(elapsedMs / 1000);
+  const minutes = Math.ceil(totalSeconds / 60);
+  return Math.floor((minutes * pricePerHourMinorUnits) / 60);
 }

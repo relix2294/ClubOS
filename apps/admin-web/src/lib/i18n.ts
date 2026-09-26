@@ -1,0 +1,156 @@
+import type { CommandState, DeviceStatus, SessionState } from "@clubos/contracts";
+
+// Локализация M0: русский язык (ТЗ §25.2.6). Все строки UI — здесь.
+
+export const t = {
+  appName: "ClubOS",
+  milestone: "M0",
+  login: {
+    title: "Вход для персонала",
+    email: "Email",
+    password: "Пароль",
+    submit: "Войти",
+    submitting: "Входим…",
+    failed: "Неверный email или пароль.",
+  },
+  nav: {
+    dashboard: "Устройства",
+    audit: "Журнал аудита",
+    enrollment: "Подключение",
+    logout: "Выйти",
+  },
+  future: {
+    title: "Будущие модули",
+    notImplemented: "Not implemented in M0",
+    items: ["Бронирования", "Касса / POS", "Клиенты и балансы", "Удалённый доступ", "Отчёты"],
+  },
+  dashboard: {
+    title: "Устройства",
+    edge: "Edge Controller",
+    edgeOnline: "Edge на связи",
+    edgeOffline: "Edge не на связи",
+    noEdge: "Edge не зарегистрирован — создайте токен на странице «Подключение».",
+    pendingSync: "ожидают синхронизации",
+    empty: "В локации нет устройств. Подключите Windows Agent или запустите Device Simulator.",
+    lastHeartbeat: "Последний heartbeat",
+    never: "никогда",
+  },
+  device: {
+    back: "← К устройствам",
+    inventory: "Инвентаризация",
+    hostname: "Имя ПК",
+    windows: "Windows",
+    cpu: "Процессор",
+    ram: "ОЗУ",
+    ip: "IPv4",
+    agent: "Версия агента",
+    enrolled: "Зарегистрирован",
+    noInventory: "Инвентаризация ещё не получена.",
+    notFound: "Устройство не найдено.",
+    commands: "Команды",
+    showMessage: "Показать сообщение",
+    messageTitle: "Заголовок",
+    messageText: "Текст сообщения",
+    send: "Отправить",
+    sending: "Отправка…",
+    lockOn: "Включить тестовую блокировку",
+    lockOff: "Снять тестовую блокировку",
+    lockHint: "LockTestMode — полноэкранный overlay (без подмены Shell). Снимается этой же кнопкой.",
+    noCommands: "Команд ещё не было.",
+    session: "Сессия",
+    noSession: "Нет активной сессии.",
+    startSession: "Начать тестовую сессию",
+    endSession: "Завершить сессию",
+    tariff: "Тариф",
+    perHour: "/час",
+    duration: "Длительность",
+    cost: "Стоимость",
+    costPreview: "предварительно; итог считает Edge",
+    waitingEdge: "Ожидаем подтверждения от Edge…",
+    endRequested: "Завершение запрошено, ожидаем Edge…",
+    history: "История сессий",
+    audit: "Аудит устройства",
+  },
+  audit: {
+    title: "Журнал аудита",
+    when: "Когда",
+    actor: "Кто",
+    action: "Действие",
+    target: "Объект",
+    result: "Результат",
+    empty: "Записей пока нет.",
+  },
+  enrollment: {
+    title: "Подключение Edge и устройств",
+    edgeTitle: "Токен для Edge Controller",
+    edgeName: "Имя Edge",
+    deviceTitle: "Токен для Windows Agent",
+    deviceName: "Имя ПК в клубе",
+    zone: "Зона",
+    create: "Создать одноразовый токен",
+    tokenOnce: "Токен показывается один раз и действует 24 часа. Он одноразовый.",
+    copy: "Скопировать",
+    expires: "Действует до",
+  },
+  common: {
+    loading: "Загрузка…",
+    retry: "Повторить",
+    error: "Ошибка",
+    simulated: "SIMULATED",
+    copied: "Скопировано",
+  },
+} as const;
+
+export const deviceStatusLabel: Record<DeviceStatus, string> = {
+  Offline: "Не в сети",
+  Idle: "Свободен",
+  Locked: "Заблокирован",
+  Active: "Сессия",
+  Reserved: "Забронирован",
+  Maintenance: "Обслуживание",
+  Updating: "Обновление",
+  Error: "Ошибка",
+};
+
+export const commandStateLabel: Record<CommandState, string> = {
+  Queued: "В очереди",
+  Delivered: "Доставлена",
+  Acknowledged: "Принята агентом",
+  Succeeded: "Выполнена",
+  Failed: "Ошибка",
+  Expired: "Просрочена",
+  Cancelled: "Отменена",
+};
+
+export const sessionStateLabel: Record<SessionState, string> = {
+  Created: "Запрошена",
+  Reserved: "Забронирована",
+  Ready: "Готова",
+  Active: "Идёт",
+  Paused: "Пауза",
+  Ending: "Завершается",
+  Ended: "Завершена",
+  Reconciled: "Сверена",
+  Cancelled: "Отменена",
+  Failed: "Не запущена",
+};
+
+const actionLabels: Record<string, string> = {
+  "auth.login": "Вход в систему",
+  "edge.enrolled": "Edge зарегистрирован",
+  "device.enrolled": "Устройство зарегистрировано",
+  "device.online": "Устройство в сети",
+  "device.offline": "Устройство не в сети",
+  "session.start": "Запрос старта сессии",
+  "session.started": "Сессия началась",
+  "session.end": "Запрос завершения сессии",
+  "session.ended": "Сессия завершена",
+  "command.ShowMessage": "Команда: сообщение",
+  "command.LockTestMode": "Команда: тестовая блокировка",
+  "enrollment.edge.token_created": "Создан токен Edge",
+  "enrollment.device.token_created": "Создан токен устройства",
+};
+
+export function actionLabel(action: string): string {
+  return actionLabels[action] ?? action;
+}

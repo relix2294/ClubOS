@@ -1,0 +1,101 @@
+# ClubOS M0 — локальный dev-стек (ТЗ §25.2, §25.3 шаг 1).
+#   cp .env.example .env    # задать пароли/ключи (секреты — только в .env, не в git)
+#   docker compose up -d --build
+#   docker compose --profile simulator up -d device-simulator   # 5 SIMULATED ПК
+#
+# Admin Web: http://localhost:3000 · Cloud API/Swagger: http://localhost:5080/swagger · Edge (агенты): :7070
+# Реальный Windows Agent подключается к Edge по http://<IP этой машины>:7070 — см. docs/runbooks/windows-agent-install.md
+
+name: clubos
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: clubos
+      POSTGRES_USER: clubos
+      POSTGRES_PASSWORD: ${CLUBOS_DB_PASSWORD:?задайте CLUBOS_DB_PASSWORD в .env}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clubos -d clubos"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  cloud-api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/cloud-api.Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      CLUBOS_ConnectionStrings__ClubOs: Host=postgres;Port=5432;Database=clubos;Username=clubos;Password=${CLUBOS_DB_PASSWORD}
+      CLUBOS_Auth__SigningKey: ${CLUBOS_AUTH_SIGNING_KEY:?задайте CLUBOS_AUTH_SIGNING_KEY в .env}
+      CLUBOS_Seed__Enabled: "true"
+      CLUBOS_Seed__OwnerEmail: ${CLUBOS_SEED_OWNER_EMAIL:-owner@demo.clubos.local}
+      CLUBOS_Seed__OwnerPassword: ${CLUBOS_SEED_OWNER_PASSWORD:?задайте CLUBOS_SEED_OWNER_PASSWORD в .env}
+      CLUBOS_Seed__EdgeEnrollmentToken: ${CLUBOS_DEV_EDGE_ENROLLMENT_TOKEN:-}
+    volumes:
+      - devca:/data/dev-ca
+    ports:
+      - "5080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf \"GET /health/ready HTTP/1.0\\r\\n\\r\\n\" >&3 && grep -q \"200 OK\" <&3'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  edge-controller:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/edge-controller.Dockerfile
+    depends_on:
+      cloud-api:
+        condition: service_healthy
+    environment:
+      CLUBOS_Edge__CloudUrl: http://cloud-api:8080
+      CLUBOS_Edge__EnrollmentToken: ${CLUBOS_DEV_EDGE_ENROLLMENT_TOKEN:-}
+    volumes:
+      - edgedata:/data/edge
+    ports:
+      - "7070:7070"
+
+  admin-web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/admin-web.Dockerfile
+    depends_on:
+      cloud-api:
+        condition: service_healthy
+    environment:
+      CLUBOS_CLOUD_API_URL: http://cloud-api:8080
+    ports:
+      - "3000:3000"
+
+  device-simulator:
+    profiles: ["simulator"]
+    build:
+      context: .
+      dockerfile: infrastructure/docker/device-simulator.Dockerfile
+    depends_on:
+      - edge-controller
+    environment:
+      CLUBOS_SIM_EDGE_URL: http://edge-controller:7070
+      CLUBOS_SIM_CLOUD_URL: http://cloud-api:8080
+      CLUBOS_SIM_EMAIL: ${CLUBOS_SEED_OWNER_EMAIL:-owner@demo.clubos.local}
+      CLUBOS_SIM_PASSWORD: ${CLUBOS_SEED_OWNER_PASSWORD}
+    volumes:
+      - simdata:/data/sim
+    stdin_open: true
+    tty: true
+
+volumes:
+  pgdata:
+  devca:
+  edgedata:
+  simdata:

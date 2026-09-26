@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>ClubOS.Agent.Core</RootNamespace>
+    <AssemblyName>ClubOS.Agent.Core</AssemblyName>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <!--
+    Кроссплатформенное ядро агента: enrollment, heartbeat, приём и исполнение команд
+    с дедупликацией. Windows-специфика (служба, DPAPI, Named Pipes, UI) — в ClubOS.Agent.Service
+    и ClubOS.Agent.SessionHost. Ядро переиспользует Device Simulator.
+  -->
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../packages/contracts-dotnet/ClubOS.Contracts.csproj" />
+    <ProjectReference Include="../../../packages/security-dotnet/ClubOS.Security.csproj" />
+  </ItemGroup>
+
+</Project>

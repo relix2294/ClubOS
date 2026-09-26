@@ -9,6 +9,9 @@ public sealed record EnrollmentTokenRequest
     public required string LocationId { get; init; }
     public required string ZoneId { get; init; }
     public required string DisplayName { get; init; }
+
+    /// <summary>true — токен для Device Simulator; устройство будет помечено SIMULATED (ТЗ §3.4).</summary>
+    public bool Simulated { get; init; }
 }
 
 /// <summary>Ответ с одноразовым токеном (используется один раз, имеет TTL).</summary>
@@ -43,4 +46,8 @@ public sealed record DeviceEnrollResponse
     public required string DeviceCertificatePem { get; init; }
 
     public required DateTimeOffset CertificateExpiresAtUtc { get; init; }
+
+    public required string DisplayName { get; init; }
+    public required string ZoneId { get; init; }
+    public required bool Simulated { get; init; }
 }

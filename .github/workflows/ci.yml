@@ -6,10 +6,14 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# ТЗ §30: lint -> unit -> integration -> build (+ Windows runner для Agent) -> e2e smoke.
 jobs:
-  # Сборка и unit/contract-тесты backend (ТЗ §30: lint -> unit -> build).
   dotnet:
-    name: .NET build & unit tests
+    name: .NET build, unit & integration tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,37 +23,107 @@ jobs:
           dotnet-version: "10.0.x"
       - name: Restore
         run: dotnet restore ClubOS.slnx
-      - name: Build (Release, warnings as errors)
+      - name: Format check (whitespace/style)
+        run: dotnet format whitespace ClubOS.slnx --verify-no-changes --no-restore
+      - name: Build (Release, warnings as errors; Windows-проекты через EnableWindowsTargeting)
         run: dotnet build ClubOS.slnx -c Release --no-restore
       - name: Unit tests
         run: dotnet test tests/unit/ClubOS.Unit.Tests.csproj -c Release --no-build --logger "trx;LogFileName=unit.trx"
+      - name: Integration tests (PostgreSQL 18 via Testcontainers)
+        run: dotnet test tests/integration/ClubOS.Integration.Tests.csproj -c Release --no-build --logger "trx;LogFileName=integration.trx"
+      - name: EF migrations are up to date
+        run: |
+          dotnet tool restore
+          dotnet ef migrations has-pending-model-changes --project services/cloud-api --no-build --configuration Release
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: unit-test-results
+          name: dotnet-test-results
           path: "**/*.trx"
 
+  admin-web:
+    name: Admin Web lint, typecheck & build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/admin-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/admin-web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+
   # Windows Agent должен компилироваться на Windows runner (ТЗ §5 п.10, §30).
-  # Джоб включится, когда появится проект services/windows-agent (сейчас — заглушка-скип).
   windows-agent:
-    name: Windows Agent build
+    name: Windows Agent build (windows-latest)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check project presence
-        id: check
-        shell: bash
-        run: |
-          if [ -f services/windows-agent/*.csproj ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
       - name: Setup .NET 10
-        if: steps.check.outputs.exists == 'true'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
-      - name: Build Windows Agent
-        if: steps.check.outputs.exists == 'true'
-        run: dotnet build services/windows-agent -c Release
-      - name: Skip note
-        if: steps.check.outputs.exists != 'true'
-        run: echo "windows-agent project не создан — пропуск (см. docs/M0_FILE_PLAN.md)."
+      - name: Publish Agent Service + SessionHost
+        shell: pwsh
+        run: |
+          dotnet publish services/windows-agent/ClubOS.Agent.Service/ClubOS.Agent.Service.csproj -c Release -r win-x64 --self-contained false -o out/agent
+          dotnet publish services/windows-agent/ClubOS.Agent.SessionHost/ClubOS.Agent.SessionHost.csproj -c Release -r win-x64 --self-contained false -o out/agent
+          Copy-Item services/windows-agent/install/*.ps1 out/agent/
+      - name: Upload agent package
+        uses: actions/upload-artifact@v4
+        with:
+          name: clubos-windows-agent
+          path: out/agent
+
+  e2e:
+    name: E2E smoke (docker compose + simulator + Playwright)
+    runs-on: ubuntu-latest
+    needs: [dotnet, admin-web]
+    env:
+      CLUBOS_DB_PASSWORD: ci-db-password
+      CLUBOS_AUTH_SIGNING_KEY: ci-signing-key-0123456789abcdefghijklmnop
+      CLUBOS_SEED_OWNER_EMAIL: owner@demo.clubos.local
+      CLUBOS_SEED_OWNER_PASSWORD: ci-owner-password
+      CLUBOS_DEV_EDGE_ENROLLMENT_TOKEN: ci0edge0enrollment0token0000000000000000
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start stack
+        run: |
+          docker compose up -d --build --wait postgres cloud-api admin-web
+          docker compose up -d --build edge-controller
+          docker compose --profile simulator up -d --build device-simulator
+      - name: Wait for 5 simulated devices online
+        run: |
+          TOKEN=$(curl -sf -X POST localhost:5080/api/v1/auth/login -H 'content-type: application/json' \
+            -d "{\"email\":\"$CLUBOS_SEED_OWNER_EMAIL\",\"password\":\"$CLUBOS_SEED_OWNER_PASSWORD\"}" | jq -r .accessToken)
+          for i in $(seq 1 60); do
+            N=$(curl -sf localhost:5080/api/v1/locations/loc_dushanbe_pilot/devices -H "Authorization: Bearer $TOKEN" | jq '[.[] | select(.status=="Idle")] | length')
+            echo "online: $N"; [ "$N" = "5" ] && exit 0; sleep 3
+          done
+          docker compose logs --tail=100; exit 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Playwright
+        working-directory: apps/admin-web
+        env:
+          E2E_PASSWORD: ${{ env.CLUBOS_SEED_OWNER_PASSWORD }}
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+      - name: Stack logs
+        if: failure()
+        run: docker compose --profile simulator logs --tail=200
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: apps/admin-web/playwright-report

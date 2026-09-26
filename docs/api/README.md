@@ -1,0 +1,59 @@
+# ClubOS Cloud API · Edge API (M0)
+
+Машиночитаемая спецификация: `GET /openapi/v1.json`, Swagger UI: `/swagger` (Cloud API).
+Все времена в UTC (ISO-8601), деньги в minor units (`12000` = 120,00 TJS). Ошибки в формате RFC 9457
+ProblemDetails с полем `code`.
+
+## Cloud API: сотрудники (JWT Bearer)
+
+Tenant берётся только из JWT. Чужие объекты возвращают **404**.
+
+| Метод | Путь | Назначение |
+|-------|------|-----------|
+| POST | `/api/v1/auth/login` | `{email,password}` → access (15 мин) + refresh (7 дней, ротация) |
+| POST | `/api/v1/auth/refresh` | `{refreshToken}` → новая пара. Повтор старого refresh отзывает всю цепочку |
+| POST | `/api/v1/auth/logout` | отзыв refresh |
+| GET | `/api/v1/me` | пользователь, организация, локации (зоны, тарифы, статус Edge) |
+| GET | `/api/v1/locations/{locationId}/devices` | устройства с эффективным статусом и активной сессией |
+| GET | `/api/v1/devices/{deviceId}` | карточка: инвентаризация, heartbeat, статус |
+| GET | `/api/v1/devices/{deviceId}/commands` | последние 50 команд |
+| POST | `/api/v1/devices/{deviceId}/commands` | `ShowMessage {title≤80, message≤500}` или `LockTestMode {lock, reason?}`; `ttlSeconds` 10–3600 (по умолчанию 120); `commandId` для идемпотентности |
+| GET | `/api/v1/devices/{deviceId}/sessions` | последние 20 сессий |
+| POST | `/api/v1/devices/{deviceId}/sessions` | запрос старта: **202**, `state=Created`; `Active` приходит по событию от Edge. **409**, если открытая сессия уже есть |
+| POST | `/api/v1/sessions/{sessionId}/end` | запрос завершения (идемпотентно): **202**, или **200** если уже завершена/запрошена |
+| GET | `/api/v1/audit?locationId=&target=device:{id}&limit=` | журнал аудита (новые сверху) |
+| POST | `/api/v1/enrollment-tokens/device` | **Owner**. `{locationId, zoneId, displayName, simulated}` → одноразовый токен (24 ч) |
+| POST | `/api/v1/enrollment-tokens/edge` | **Owner**. `{locationId, name}` → одноразовый токен Edge |
+| GET | `/health/live`, `/health/ready` | liveness / readiness (PostgreSQL) |
+
+Rate limit на `/auth/*` и enrollment: `RateLimits:AuthPerMinute` (по умолчанию 20 запросов в минуту с одного IP).
+
+## Cloud API: Edge (`Authorization: ClubOS-Sig <JWS>`)
+
+| Метод | Путь | Назначение |
+|-------|------|-----------|
+| POST | `/api/v1/edge/enroll` | анонимно: `{enrollmentToken, certificateSigningRequestPem}` → edgeId, сертификат, CA |
+| GET | `/api/v1/edge/config` | локация, зоны и тарифы, устройства (кэш для offline) |
+| POST | `/api/v1/edge/sync` | `{events: EventEnvelope[]}` (≤500) → `{accepted, duplicates, rejected}`. Идемпотентно по `eventId` |
+| GET | `/api/v1/edge/commands?waitSeconds=0..25` | long-poll очереди Cloud→Edge (неподтверждённые, непросроченные) |
+| POST | `/api/v1/edge/commands/ack` | `{ids}` → подтверждение получения |
+| POST | `/api/v1/edge/status` | снимок статусов устройств и размер outbox (не durable) |
+| POST | `/api/v1/edge/devices/enroll` | пересылка enrollment агента (токен привязан к локации Edge) |
+
+Типы событий sync: `SessionStarted`, `SessionStartRejected`, `SessionEnded`, `CommandStateChanged`,
+`DeviceConnectivityChanged` (payload — см. `packages/contracts-dotnet/Events.cs`).
+
+## Edge: API агентов (порт 7070, `Authorization: ClubOS-Sig <JWS>` ключом устройства)
+
+| Метод | Путь | Назначение |
+|-------|------|-----------|
+| POST | `/agent/v1/enroll` | анонимно: `DeviceEnrollRequest` → `DeviceEnrollResponse` (через Cloud) |
+| POST | `/agent/v1/heartbeat` | `HeartbeatMessage` каждые 10 с; инвентаризация примерно раз в 5 мин |
+| GET | `/agent/v1/commands?waitSeconds=0..25` | long-poll команд устройства (повторная выдача Delivered возможна, агент дедуплицирует) |
+| POST | `/agent/v1/commands/{commandId}/result` | `{state: Acknowledged/Succeeded/Failed, error?}`, переходы только вперёд |
+| GET | `/health` | состояние Edge, связь с Cloud, размер outbox |
+
+## Edge: локальный admin API (127.0.0.1:7071, Bearer из `edge-data/local-admin.token`)
+
+Используется `edge-cli`: `GET /local/v1/status`, `GET /local/v1/devices`, `GET /local/v1/sessions[?active=true]`,
+`POST /local/v1/sessions {deviceId, actor}`, `POST /local/v1/sessions/{id}/end {actor}`.

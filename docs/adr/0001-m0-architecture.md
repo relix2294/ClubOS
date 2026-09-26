@@ -59,9 +59,17 @@ Pipes с ACL (§11.1). `LockTestMode` на M0 = overlay, без подмены S
 ### Multitenancy
 Tenant/organization scope проверяется backend, а не доверяется ID из UI (§4, §8 AUTH-001).
 
+## Реализация (2026-09-26)
+
+- Cloud→Edge — HTTP long-poll с ack и inbox на Edge (D-010); Edge→Cloud — sync-batch из durable outbox.
+- Аутентификация Edge и Agent — подписанные ES256-токены по сертификатам dev CA (`docs/security/dev-ca.md`, D-007).
+- Сессия из Admin Web — запрос в Cloud (`Created`), исполнение и расчёт на Edge, `Active/Ended` по событиям.
+- Admin Web — BFF (route handlers Next.js) с httpOnly-cookie; realtime через polling (D-008).
+- Ядро агента (`ClubOS.Agent.Core`) кроссплатформенное и переиспользуется Device Simulator'ом.
+
 ## Последствия
 
-- Локальный запуск требует .NET 10 SDK и Docker (PostgreSQL). На текущей dev-машине их нет — см. `STATUS.md`/`DEVIATIONS.md`.
+- Локальный запуск требует .NET 10 SDK и Docker (PostgreSQL); см. README.
 - Windows Agent проверяется отдельно на реальном Windows ПК; здесь гарантируется только компиляция на Windows CI runner.
 
 ## Отложенные решения (требуют отдельного ADR — §36)
