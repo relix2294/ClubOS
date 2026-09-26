@@ -70,10 +70,16 @@ docker compose start cloud-api                             # outbox синхро
 
 Полный сброс: `docker compose --profile simulator down -v`.
 
-## Реальный Windows Agent
+## Боевое развёртывание (пилот)
 
-См. [`docs/runbooks/windows-agent-install.md`](docs/runbooks/windows-agent-install.md): сборка пакета
-(или артефакт CI `clubos-windows-agent`), токен из Admin Web → «Подключение», затем `install-agent.ps1` и чек-лист приёмки.
+| Где | Что | Runbook |
+|-----|-----|---------|
+| VPS (Linux) | Cloud API + PostgreSQL + Admin Web за Caddy (HTTPS, Let's Encrypt), один `docker compose` | [`vps-deploy.md`](docs/runbooks/vps-deploy.md) |
+| Сервер клуба (Windows) | Edge Controller как служба `ClubOSEdge` + `edge-cli` (пакет CI `clubos-edge-windows`) | [`edge-windows-install.md`](docs/runbooks/edge-windows-install.md) |
+| Игровые ПК (Windows) | Windows Agent: служба `ClubOSAgent` + AgentSessionHost (пакет CI `clubos-windows-agent-selfcontained`) | [`windows-agent-install.md`](docs/runbooks/windows-agent-install.md) |
+| Админские ПК | браузер → `https://clubos.<домен>` | — |
+
+Пакеты для Windows самодостаточные: .NET на серверах и ПК клуба ставить не нужно.
 
 ## Разработка без Docker-образов
 

@@ -12,7 +12,10 @@ if (parsed.Command is null or "help" or "--help" or "-h")
     return parsed.Command is null ? 1 : 0;
 }
 
-var dataPath = parsed.Get("data") ?? Environment.GetEnvironmentVariable("CLUBOS_EDGE_DATA") ?? "edge-data";
+var defaultDataPath = OperatingSystem.IsWindows()
+    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ClubOS", "Edge")
+    : "edge-data";
+var dataPath = parsed.Get("data") ?? Environment.GetEnvironmentVariable("CLUBOS_EDGE_DATA") ?? defaultDataPath;
 var url = parsed.Get("url") ?? Environment.GetEnvironmentVariable("CLUBOS_EDGE_LOCAL_URL") ?? "http://127.0.0.1:7071";
 var tokenPath = Path.Combine(dataPath, "local-admin.token");
 if (!File.Exists(tokenPath))
@@ -121,7 +124,8 @@ static void PrintUsage() => Console.WriteLine("""
       end <sessionId> [--actor X]         завершить сессию (идемпотентно)
 
     Опции:
-      --data <path>   каталог данных Edge (env CLUBOS_EDGE_DATA, по умолчанию ./edge-data)
+      --data <path>   каталог данных Edge (env CLUBOS_EDGE_DATA; по умолчанию Windows: %ProgramData%\ClubOS\Edge,
+                      иначе ./edge-data). На Windows запускайте от имени администратора.
       --url <url>     локальный API Edge (env CLUBOS_EDGE_LOCAL_URL, по умолчанию http://127.0.0.1:7071)
     """);
 

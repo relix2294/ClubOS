@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using ClubOS.Contracts;
 using ClubOS.Security;
@@ -35,7 +36,7 @@ public sealed class EdgeIdentityStore
         if (File.Exists(_identityPath) && File.Exists(_keyPath))
         {
             Current = JsonSerializer.Deserialize<EdgeIdentity>(File.ReadAllText(_identityPath), ContractJson.Options);
-            _key = DeviceKey.FromPrivateKeyPem(File.ReadAllText(_keyPath));
+            _key = DeviceKey.FromPrivateKeyPem(ReadKeyPem(_keyPath));
             _enrolled.TrySetResult();
         }
     }
@@ -59,12 +60,12 @@ public sealed class EdgeIdentityStore
 
         if (File.Exists(_keyPath))
         {
-            _key = DeviceKey.FromPrivateKeyPem(File.ReadAllText(_keyPath));
+            _key = DeviceKey.FromPrivateKeyPem(ReadKeyPem(_keyPath));
             return _key;
         }
 
         _key = DeviceKey.Generate();
-        WritePrivate(_keyPath, _key.ExportPrivateKeyPem());
+        WriteKeyPem(_keyPath, _key.ExportPrivateKeyPem());
         return _key;
     }
 
@@ -75,6 +76,35 @@ public sealed class EdgeIdentityStore
         File.Move(temp, _identityPath, overwrite: true);
         Current = identity;
         _enrolled.TrySetResult();
+    }
+
+    private static readonly byte[] KeyEntropy = "ClubOS.Edge.Key.v1"u8.ToArray();
+
+    /// <summary>
+    /// Windows: ключ Edge шифруется DPAPI (LocalMachine) — файл бесполезен на другом ПК;
+    /// доступ к каталогу ограничен SYSTEM и Administrators. Linux/контейнер: файл с правами 600.
+    /// </summary>
+    private static string ReadKeyPem(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var bytes = ProtectedData.Unprotect(File.ReadAllBytes(path), KeyEntropy, DataProtectionScope.LocalMachine);
+            return System.Text.Encoding.UTF8.GetString(bytes);
+        }
+
+        return File.ReadAllText(path);
+    }
+
+    private static void WriteKeyPem(string path, string pem)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            File.WriteAllBytes(path, ProtectedData.Protect(System.Text.Encoding.UTF8.GetBytes(pem), KeyEntropy,
+                DataProtectionScope.LocalMachine));
+            return;
+        }
+
+        WritePrivate(path, pem);
     }
 
     internal static void WritePrivate(string path, string content)

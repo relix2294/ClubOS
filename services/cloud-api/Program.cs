@@ -8,6 +8,7 @@ using ClubOS.CloudApi.Infrastructure;
 using ClubOS.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
@@ -85,6 +86,19 @@ builder.Services.AddRateLimiter(o =>
         }));
 });
 
+// За reverse proxy (Caddy на VPS): реальный IP клиента для rate limit и схема https.
+// Включать только когда Cloud API недоступен напрямую из интернета (см. infrastructure/vps).
+var trustForwardedHeaders = builder.Configuration.GetValue("Proxy:TrustForwardedHeaders", false);
+if (trustForwardedHeaders)
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(o =>
+    {
+        o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        o.KnownIPNetworks.Clear();
+        o.KnownProxies.Clear();
+    });
+}
+
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks()
@@ -103,6 +117,11 @@ if (builder.Configuration.GetValue("Database:MigrateOnStartup", true))
     {
         await DevSeeder.SeedAsync(db, seed, TimeProvider.System, app.Logger);
     }
+}
+
+if (trustForwardedHeaders)
+{
+    app.UseForwardedHeaders();
 }
 
 app.UseExceptionHandler();

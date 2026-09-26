@@ -12,6 +12,11 @@ public sealed class SeedOptions
     public bool Enabled { get; set; }
     public string OwnerEmail { get; set; } = "owner@demo.clubos.local";
 
+    /// <summary>Отображаемые имена при первом запуске (ID постоянные). Меняются только до первого seed.</summary>
+    public string OrganizationName { get; set; } = "Demo Club Group";
+    public string LocationName { get; set; } = "Dushanbe Pilot";
+    public string OwnerDisplayName { get; set; } = "Dev Owner";
+
     /// <summary>Пароль dev Owner — только из env (CLUBOS_Seed__OwnerPassword), не из git.</summary>
     public string? OwnerPassword { get; set; }
 
@@ -40,12 +45,12 @@ public static class DevSeeder
         var now = time.GetUtcNow();
         if (!await db.Organizations.AnyAsync(x => x.Id == OrganizationId, ct))
         {
-            db.Organizations.Add(new Organization { Id = OrganizationId, Name = "Demo Club Group", CreatedAtUtc = now });
+            db.Organizations.Add(new Organization { Id = OrganizationId, Name = options.OrganizationName, CreatedAtUtc = now });
             db.Locations.Add(new Location
             {
                 Id = LocationId,
                 OrganizationId = OrganizationId,
-                Name = "Dushanbe Pilot",
+                Name = options.LocationName,
                 Timezone = "Asia/Dushanbe",
                 Currency = "TJS",
                 CreatedAtUtc = now
@@ -87,7 +92,7 @@ public static class DevSeeder
             Id = "usr_demo_owner",
             OrganizationId = OrganizationId,
             Email = email,
-            DisplayName = "Dev Owner",
+            DisplayName = options.OwnerDisplayName,
             PasswordHash = PasswordHasher.Hash(options.OwnerPassword),
             Role = Roles.Owner,
             CreatedAtUtc = now

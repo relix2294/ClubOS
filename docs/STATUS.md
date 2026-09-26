@@ -1,6 +1,6 @@
 # STATUS — ClubOS CA, Milestone 0
 
-**Обновлено:** 2026-09-26
+**Обновлено:** 2026-09-26 (вечер: VPS и Edge на Windows)
 **Фаза:** M0 реализован целиком. Автоматические проверки и сквозной сценарий пройдены в облачной
 среде разработки (Linux, .NET 10.0.112, Docker, PostgreSQL 18.6).
 Открыт один пункт — ручной тест Windows Agent на реальном Windows ПК (ТЗ §3.3), см. раздел 4.
@@ -43,21 +43,28 @@ docker compose up -d --build && docker compose --profile simulator up -d device-
 E2E_PASSWORD=<пароль-owner> npm run test:e2e # в apps/admin-web, против поднятого стека
 ```
 
-## 3. Ограничения проверки в этой среде (честно)
+## 3. Развёртывание пилота (проверено)
 
-- **Образ `admin-web` не собран локально:** Docker Hub отвечал `429 Too Many Requests` на `node:22-alpine`,
-  а зеркала закрыты сетевой политикой среды. Вместо образа проверен тот же standalone-сервер
-  (`node apps/admin-web/server.js` из `.next/standalone`), который запускает контейнер. Против него прошёл e2e.
-  Сборка образа выполняется в CI (job `e2e`).
-- **Сборка .NET-образов здесь** шла с временно подложенным CA прокси песочницы (исходящий HTTPS идёт через
-  MITM-прокси). Сами Dockerfile'ы в репозитории стандартные, без этого CA.
-- **CI на GitHub** ещё не запускался: workflow обновлён, первый прогон будет на PR.
+- **VPS-стек** (`infrastructure/vps`): PostgreSQL, Cloud API, Admin Web и Caddy. Поднят из репозитория
+  в среде разработки, домен `localhost`, сертификат от внутреннего CA Caddy. Проверено:
+  - вход через BFF по HTTPS (secure httpOnly-cookie);
+  - наружу закрыты Swagger, OpenAPI и health, HTTP перенаправляется на HTTPS;
+  - Edge зарегистрировался и работает через HTTPS, 2 симулированных ПК подключились;
+  - Playwright e2e 3/3 через Caddy;
+  - `backup.sh` снял дамп базы и dev CA.
+- **Edge на Windows:** режим службы `ClubOSEdge`, данные в `%ProgramData%\ClubOS\Edge`, ключ под DPAPI,
+  `install-edge.ps1` / `uninstall-edge.ps1`. CI (`windows-latest`): unit-тесты на Windows,
+  самодостаточный пакет `clubos-edge-windows`, пробный запуск с проверкой `/health` и `edge-cli status`.
+- Ограничения этой среды: исходящий HTTPS идёт через прокси с собственным CA, поэтому образы здесь собирались
+  с временно подложенным CA. Dockerfile'ы в репозитории стандартные. CI на GitHub собирает их без обходов.
 
 ## 4. Открыто: Windows Agent на реальном Windows ПК (ТЗ §3.3, §25.3 шаг 2)
 
 Ожидаемый блокер (B3, см. DEVIATIONS ENV-3): в облачной среде нет Windows. Нужно выполнить
 [`docs/runbooks/windows-agent-install.md`](runbooks/windows-agent-install.md) на реальном ПК (13 пунктов)
-и записать протокол сюда. Пакет агента: артефакт CI `clubos-windows-agent` или `dotnet publish` по runbook.
+и записать протокол сюда. Схема теста: Cloud на VPS ([vps-deploy.md](runbooks/vps-deploy.md)), Edge на сервере
+клуба ([edge-windows-install.md](runbooks/edge-windows-install.md)), агент на игровом ПК. Пакеты: артефакты CI
+`clubos-edge-windows` и `clubos-windows-agent-selfcontained`.
 
 | Дата | Windows (build) | Версия агента | Пункты 1–13 | Проблемы |
 |------|-----------------|---------------|-------------|----------|
@@ -70,17 +77,18 @@ E2E_PASSWORD=<пароль-owner> npm run test:e2e # в apps/admin-web, прот
 | Контракты C# + TS | ✅ | envelope, DTO, события, state machines, BillingCalculator (C# и TS) |
 | Security (dev CA, ключи, подписанные токены) | ✅ | `docs/security/dev-ca.md` |
 | Cloud API | ✅ | auth, tenant scope, devices, commands, sessions, audit, enrollment, edge sync/queue, health, OpenAPI/Swagger, rate limit |
-| Edge Controller + edge-cli | ✅ | SQLite WAL, outbox/inbox, long-poll к Cloud, API агентов, loopback admin API |
+| Edge Controller + edge-cli | ✅ код / ⏳ ручной тест на Windows | SQLite WAL, outbox/inbox, long-poll к Cloud, API агентов, loopback admin API; Windows-служба + install-edge.ps1 |
 | Windows Agent (Core/Service/SessionHost + install.ps1) | ✅ код / ⏳ ручной тест | DPAPI, Named Pipe с ACL и проверкой клиента, LockTestMode overlay |
 | Device Simulator | ✅ | 5 SIMULATED ПК, команды `offline N` / `online N` |
 | Admin Web | ✅ | Next.js 16 BFF (httpOnly-cookie, CSRF-проверка), RU, Playwright |
 | docker-compose, `.env.example` | ✅ | dev-bootstrap Edge по seed-токену |
-| CI | ✅ написан | .NET + integration, web, windows-latest, e2e compose |
+| VPS (`infrastructure/vps`) | ✅ | Caddy + Let's Encrypt, backup.sh, runbook `vps-deploy.md` |
+| CI | ✅ зелёный | .NET + integration, web, Windows (Agent + Edge, unit-тесты, пробный запуск), e2e compose, валидация VPS-конфига |
 | Документация | ✅ | README, API, runbook, security, THIRD_PARTY, DEVIATIONS D-001…D-015 |
 
 ## 6. Следующие шаги
 
-1. Выполнить ручной тест Windows Agent по runbook и заполнить п. 4.
-2. Открыть PR и довести CI до зелёного на GitHub (первый прогон workflow).
+1. Развернуть Cloud на VPS, Edge на сервере клуба, агент на игровом ПК; выполнить чек-листы runbook'ов и заполнить п. 4.
+2. Настроить ежедневный `backup.sh` и копирование бэкапов за пределы VPS.
 3. Кандидаты на M1 (из DEVIATIONS): TLS Edge↔Agent и подпись тела (D-007), SignalR push (D-008), Argon2id (D-009),
    отзыв и перевыпуск сертификатов (D-011), выбор локации и полный RBAC (D-013).

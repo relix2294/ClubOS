@@ -1,0 +1,90 @@
+# ClubOS — Cloud-часть на VPS (Linux): PostgreSQL + Cloud API + Admin Web за Caddy с HTTPS.
+# Edge Controller сюда НЕ входит: он ставится в клубе (Windows-служба), см. docs/runbooks/edge-windows-install.md.
+#
+#   cd infrastructure/vps && cp .env.example .env && nano .env
+#   docker compose up -d --build
+#
+# Наружу открыты только 80/443 (Caddy). База и Cloud API доступны лишь внутри docker-сети.
+
+name: clubos-cloud
+
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: clubos
+      POSTGRES_USER: clubos
+      POSTGRES_PASSWORD: ${CLUBOS_DB_PASSWORD:?задайте CLUBOS_DB_PASSWORD в .env}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clubos -d clubos"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  cloud-api:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/cloud-api.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      CLUBOS_ConnectionStrings__ClubOs: Host=postgres;Port=5432;Database=clubos;Username=clubos;Password=${CLUBOS_DB_PASSWORD}
+      CLUBOS_Auth__SigningKey: ${CLUBOS_AUTH_SIGNING_KEY:?задайте CLUBOS_AUTH_SIGNING_KEY в .env}
+      # Seed создаёт организацию/локацию/зоны и первого Owner при первом запуске; повторно ничего не дублирует.
+      CLUBOS_Seed__Enabled: "true"
+      CLUBOS_Seed__OwnerEmail: ${CLUBOS_OWNER_EMAIL:?задайте CLUBOS_OWNER_EMAIL в .env}
+      CLUBOS_Seed__OwnerPassword: ${CLUBOS_OWNER_PASSWORD:?задайте CLUBOS_OWNER_PASSWORD в .env}
+      CLUBOS_Seed__OwnerDisplayName: ${CLUBOS_OWNER_NAME:-Владелец}
+      CLUBOS_Seed__OrganizationName: ${CLUBOS_ORGANIZATION_NAME:-Demo Club Group}
+      CLUBOS_Seed__LocationName: ${CLUBOS_LOCATION_NAME:-Dushanbe Pilot}
+      # Cloud API доступен только через Caddy — доверяем X-Forwarded-* (реальный IP для rate limit).
+      CLUBOS_Proxy__TrustForwardedHeaders: "true"
+    volumes:
+      - devca:/data/dev-ca   # dev CA: ОБЯЗАТЕЛЬНО в бэкап (потеря = перерегистрация всех Edge и ПК)
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf \"GET /health/ready HTTP/1.0\\r\\n\\r\\n\" >&3 && grep -q \"200 OK\" <&3'"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+
+  admin-web:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/admin-web.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      cloud-api:
+        condition: service_healthy
+    environment:
+      CLUBOS_CLOUD_API_URL: http://cloud-api:8080
+      CLUBOS_COOKIE_SECURE: "true"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - admin-web
+      - cloud-api
+    environment:
+      CLUBOS_DOMAIN: ${CLUBOS_DOMAIN:?задайте CLUBOS_DOMAIN в .env}
+      CLUBOS_ACME_EMAIL: ${CLUBOS_ACME_EMAIL:?задайте CLUBOS_ACME_EMAIL в .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  devca:
+  caddy_data:
+  caddy_config:

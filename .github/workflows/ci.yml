@@ -60,9 +60,9 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
 
-  # Windows Agent должен компилироваться на Windows runner (ТЗ §5 п.10, §30).
+  # Windows Agent и Edge (сервер клуба на Windows) собираются и запускаются на Windows runner (ТЗ §5 п.10, §30).
   windows-agent:
-    name: Windows Agent build (windows-latest)
+    name: Windows build (Agent + Edge, windows-latest)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -90,6 +90,36 @@ jobs:
           Start-Sleep -Seconds 8
           if ($p.HasExited) { throw "ClubOS.Agent.Service завершился с кодом $($p.ExitCode)" }
           Stop-Process -Id $p.Id -Force
+      - name: Unit tests on Windows (SQLite store, DPAPI, agent core)
+        run: dotnet test tests/unit/ClubOS.Unit.Tests.csproj -c Release
+      - name: Publish Edge Controller + edge-cli (self-contained)
+        shell: pwsh
+        run: |
+          dotnet publish services/edge-controller/ClubOS.EdgeController.csproj -c Release -r win-x64 --self-contained true -o out/edge
+          dotnet publish services/edge-cli/ClubOS.EdgeCli.csproj -c Release -r win-x64 --self-contained true -o out/edge
+          Copy-Item services/edge-controller/install/*.ps1 out/edge/
+      - name: Smoke-start Edge (health + edge-cli)
+        shell: pwsh
+        run: |
+          $data = Join-Path $env:RUNNER_TEMP 'edge-smoke'
+          # Cloud недоступен (порт 9): Edge должен работать локально, enrollment ждёт токен.
+          $p = Start-Process -FilePath out/edge/ClubOS.EdgeController.exe -ArgumentList '--Edge:DataPath', $data, '--Edge:CloudUrl', 'http://127.0.0.1:9' -PassThru -NoNewWindow
+          $health = $null
+          for ($i = 0; $i -lt 30 -and -not $health; $i++) {
+            Start-Sleep -Seconds 1
+            try { $health = Invoke-RestMethod -Uri http://localhost:7070/health -TimeoutSec 2 } catch { }
+          }
+          if (-not $health) { throw 'Edge не ответил на /health' }
+          $health | Format-List
+          & out/edge/edge-cli.exe status --data $data
+          if ($LASTEXITCODE -ne 0) { throw "edge-cli status завершился с кодом $LASTEXITCODE" }
+          if ($p.HasExited) { throw "Edge завершился с кодом $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+      - name: Upload Edge package
+        uses: actions/upload-artifact@v4
+        with:
+          name: clubos-edge-windows
+          path: out/edge
       - name: Upload agent package
         uses: actions/upload-artifact@v4
         with:
@@ -113,6 +143,13 @@ jobs:
       CLUBOS_DEV_EDGE_ENROLLMENT_TOKEN: ci0edge0enrollment0token0000000000000000
     steps:
       - uses: actions/checkout@v4
+      - name: Validate VPS compose and Caddyfile
+        run: |
+          cp infrastructure/vps/.env.example infrastructure/vps/.env
+          docker compose -f infrastructure/vps/docker-compose.yml config -q
+          docker run --rm -v "$PWD/infrastructure/vps/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            -e CLUBOS_DOMAIN=localhost -e CLUBOS_ACME_EMAIL=ci@example.tj caddy:2 caddy validate --config /etc/caddy/Caddyfile
+          rm infrastructure/vps/.env
       - name: Start stack
         run: |
           docker compose up -d --build --wait postgres cloud-api admin-web

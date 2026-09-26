@@ -4,13 +4,42 @@ using ClubOS.EdgeController.Api;
 using ClubOS.EdgeController.Cloud;
 using ClubOS.EdgeController.Storage;
 using ClubOS.EdgeController.Workers;
+using Microsoft.Extensions.Hosting.WindowsServices;
+using Microsoft.Extensions.Logging.EventLog;
 using Microsoft.Extensions.Options;
 
-var builder = WebApplication.CreateBuilder(args);
-builder.Configuration.AddEnvironmentVariables("CLUBOS_");
-builder.Services.Configure<EdgeOptions>(builder.Configuration.GetSection(EdgeOptions.Section));
+// Edge Controller: Windows Service на сервере клуба (ClubOSEdge) или консоль/контейнер для разработки.
+const string ServiceName = WindowsHosting.ServiceName;
 
-var edgeOptions = builder.Configuration.GetSection(EdgeOptions.Section).Get<EdgeOptions>() ?? new EdgeOptions();
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    // Служба Windows стартует с текущим каталогом System32 — content root берём из каталога exe.
+    ContentRootPath = WindowsServiceHelpers.IsWindowsService() ? AppContext.BaseDirectory : null
+});
+
+// Windows: данные и edge.json в %ProgramData%\ClubOS\Edge (ACL ставит install-edge.ps1).
+var defaultDataPath = OperatingSystem.IsWindows()
+    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ClubOS", "Edge")
+    : "edge-data";
+builder.Configuration.AddJsonFile(Path.Combine(defaultDataPath, "edge.json"), optional: true, reloadOnChange: false);
+builder.Configuration.AddEnvironmentVariables("CLUBOS_");
+builder.Configuration.AddCommandLine(args);
+
+builder.Services.AddWindowsService(o => o.ServiceName = ServiceName);
+if (OperatingSystem.IsWindows())
+{
+    // Источник Event Log = имя службы (регистрируется install-edge.ps1).
+    builder.Services.Configure<EventLogSettings>(WindowsHosting.UseServiceEventSource);
+}
+builder.Services.Configure<EdgeOptions>(o =>
+{
+    o.DataPath = defaultDataPath;
+    builder.Configuration.GetSection(EdgeOptions.Section).Bind(o);
+});
+
+var edgeOptions = new EdgeOptions { DataPath = defaultDataPath };
+builder.Configuration.GetSection(EdgeOptions.Section).Bind(edgeOptions);
 
 // Два listener'а: API агентов (LAN) и локальный admin API (только loopback) — ТЗ §25.2.4.
 if (builder.Configuration["ASPNETCORE_URLS"] is null && builder.Configuration["urls"] is null)

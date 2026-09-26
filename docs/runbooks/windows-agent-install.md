@@ -9,8 +9,8 @@ Device Simulator'ом. CI гарантирует только компиляци
 |-----|-----------|
 | Windows 10 22H2 / Windows 11, x64, права администратора | ПК клуба или тестовый ПК |
 | .NET 10 **Desktop Runtime** x64 — только для обычного пакета. Самодостаточному пакету runtime не нужен | https://dotnet.microsoft.com/download/dotnet/10.0 |
-| Работающий стек ClubOS (Cloud + Edge) | `docker compose up -d` на машине разработчика (см. README) |
-| Сетевой доступ ПК → Edge, TCP **7070** | Edge слушает `0.0.0.0:7070`. Проверьте firewall машины с Edge |
+| Работающий стек ClubOS | Cloud на VPS ([vps-deploy.md](vps-deploy.md)) + Edge на сервере клуба ([edge-windows-install.md](edge-windows-install.md)); для разработки — `docker compose up -d` (README) |
+| Сетевой доступ ПК → Edge, TCP **7070** | Edge слушает `0.0.0.0:7070`; `install-edge.ps1` открывает порт в firewall сервера |
 | Пакет агента | артефакт CI `clubos-windows-agent-selfcontained` (рекомендуется для теста: ничего не нужно ставить), `clubos-windows-agent` (требует Desktop Runtime) **или** сборка ниже |
 
 ### Сборка пакета (на любой машине с .NET 10 SDK)
@@ -49,7 +49,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 ## 3. Чек-лист приёмки (ТЗ §25.3 шаг 2)
 
-Отмечайте результат и время. Всё проверяется в Admin Web (`http://<машина>:3000`).
+Отмечайте результат и время. Всё проверяется в Admin Web (`https://clubos.<ваш-домен>` или `http://<машина>:3000` в dev).
 
 | # | Проверка | Ожидаемый результат |
 |---|----------|---------------------|

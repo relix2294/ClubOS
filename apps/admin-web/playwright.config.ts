@@ -13,6 +13,8 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     locale: "ru-RU",
+    // Для стенда с самоподписанным сертификатом (Caddy internal CA на localhost).
+    ignoreHTTPSErrors: process.env.E2E_IGNORE_HTTPS_ERRORS === "true",
   },
   projects: [
     {
