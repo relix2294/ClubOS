@@ -72,6 +72,10 @@ else {
 & sc.exe description $ServiceName 'ClubOS Windows Agent (M0): heartbeat, inventory, ShowMessage, LockTestMode.' | Out-Null
 & sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/5000/restart/30000 | Out-Null
 
+if (-not [System.Diagnostics.EventLog]::SourceExists($ServiceName)) {
+    [System.Diagnostics.EventLog]::CreateEventSource($ServiceName, 'Application')
+}
+
 Write-Host "==> Задача планировщика «$TaskName» (запуск SessionHost при входе пользователя)"
 $action = New-ScheduledTaskAction -Execute (Join-Path $InstallDir 'ClubOS.Agent.SessionHost.exe')
 $trigger = New-ScheduledTaskTrigger -AtLogOn

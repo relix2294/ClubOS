@@ -76,11 +76,30 @@ jobs:
           dotnet publish services/windows-agent/ClubOS.Agent.Service/ClubOS.Agent.Service.csproj -c Release -r win-x64 --self-contained false -o out/agent
           dotnet publish services/windows-agent/ClubOS.Agent.SessionHost/ClubOS.Agent.SessionHost.csproj -c Release -r win-x64 --self-contained false -o out/agent
           Copy-Item services/windows-agent/install/*.ps1 out/agent/
+      - name: Publish self-contained package (no .NET install needed on the PC)
+        shell: pwsh
+        run: |
+          dotnet publish services/windows-agent/ClubOS.Agent.Service/ClubOS.Agent.Service.csproj -c Release -r win-x64 --self-contained true -o out/agent-sc
+          dotnet publish services/windows-agent/ClubOS.Agent.SessionHost/ClubOS.Agent.SessionHost.csproj -c Release -r win-x64 --self-contained true -o out/agent-sc
+          Copy-Item services/windows-agent/install/*.ps1 out/agent-sc/
+      - name: Smoke-start service in console mode
+        shell: pwsh
+        run: |
+          # Проверяем, что exe запускается на Windows (без Edge: enrollment не удастся, но процесс должен жить).
+          $p = Start-Process -FilePath out/agent-sc/ClubOS.Agent.Service.exe -ArgumentList '--Agent:DataPath', "$env:RUNNER_TEMP\agent-smoke" -PassThru -NoNewWindow
+          Start-Sleep -Seconds 8
+          if ($p.HasExited) { throw "ClubOS.Agent.Service завершился с кодом $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
       - name: Upload agent package
         uses: actions/upload-artifact@v4
         with:
           name: clubos-windows-agent
           path: out/agent
+      - name: Upload self-contained agent package
+        uses: actions/upload-artifact@v4
+        with:
+          name: clubos-windows-agent-selfcontained
+          path: out/agent-sc
 
   e2e:
     name: E2E smoke (docker compose + simulator + Playwright)

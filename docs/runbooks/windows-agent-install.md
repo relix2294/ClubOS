@@ -8,16 +8,18 @@ Device Simulator'ом. CI гарантирует только компиляци
 | Что | Где взять |
 |-----|-----------|
 | Windows 10 22H2 / Windows 11, x64, права администратора | ПК клуба или тестовый ПК |
-| .NET 10 **Desktop Runtime** x64 (содержит и .NET Runtime для службы, и WinForms для SessionHost) | https://dotnet.microsoft.com/download/dotnet/10.0 |
+| .NET 10 **Desktop Runtime** x64 — только для обычного пакета. Самодостаточному пакету runtime не нужен | https://dotnet.microsoft.com/download/dotnet/10.0 |
 | Работающий стек ClubOS (Cloud + Edge) | `docker compose up -d` на машине разработчика (см. README) |
 | Сетевой доступ ПК → Edge, TCP **7070** | Edge слушает `0.0.0.0:7070`. Проверьте firewall машины с Edge |
-| Пакет агента | артефакт CI `clubos-windows-agent` **или** сборка ниже |
+| Пакет агента | артефакт CI `clubos-windows-agent-selfcontained` (рекомендуется для теста: ничего не нужно ставить), `clubos-windows-agent` (требует Desktop Runtime) **или** сборка ниже |
 
 ### Сборка пакета (на любой машине с .NET 10 SDK)
 
 ```powershell
 dotnet publish services/windows-agent/ClubOS.Agent.Service/ClubOS.Agent.Service.csproj -c Release -r win-x64 --self-contained false -o out/agent
 dotnet publish services/windows-agent/ClubOS.Agent.SessionHost/ClubOS.Agent.SessionHost.csproj -c Release -r win-x64 --self-contained false -o out/agent
+# Самодостаточный вариант (без установки .NET на ПК): замените в обеих командах
+#   --self-contained false  →  --self-contained true
 Copy-Item services/windows-agent/install/*.ps1 out/agent/
 ```
 

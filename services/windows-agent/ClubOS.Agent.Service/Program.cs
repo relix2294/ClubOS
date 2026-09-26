@@ -1,5 +1,6 @@
 using ClubOS.Agent.Core;
 using ClubOS.Agent.Service;
+using Microsoft.Extensions.Logging.EventLog;
 using Microsoft.Extensions.Options;
 
 // ClubOS Windows Agent: .NET Windows Service (Session 0) + console mode для разработки.
@@ -16,7 +17,10 @@ builder.Configuration.AddJsonFile(Path.Combine(defaultDataPath, "agent.json"), o
 builder.Configuration.AddEnvironmentVariables("CLUBOS_");
 builder.Configuration.AddCommandLine(args);
 
-builder.Services.AddWindowsService(o => o.ServiceName = "ClubOSAgent");
+const string ServiceName = "ClubOSAgent";
+builder.Services.AddWindowsService(o => o.ServiceName = ServiceName);
+// Источник Event Log = имя службы (регистрируется install-agent.ps1); по умолчанию было бы имя сборки.
+builder.Services.Configure<EventLogSettings>(o => o.SourceName = ServiceName);
 builder.Services.Configure<AgentOptions>(o =>
 {
     o.DataPath = defaultDataPath;
