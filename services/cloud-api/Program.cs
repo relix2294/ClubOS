@@ -64,15 +64,27 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
             NameClaimType = "sub",
             RoleClaimType = "role"
         };
+        o.Events = new JwtBearerEvents { OnTokenValidated = StaffTokenValidation.OnTokenValidated };
     });
 
-builder.Services.AddAuthorizationBuilder()
+var authorization = builder.Services.AddAuthorizationBuilder()
+    // Любой вошедший сотрудник (в т.ч. с временным паролем) — только /me и смена пароля.
     .AddPolicy(Policies.Staff, p => p.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
         .RequireAuthenticatedUser().RequireClaim(StaffContext.TenantClaim))
-    .AddPolicy(Policies.Owner, p => p.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
-        .RequireAuthenticatedUser().RequireRole(ClubOS.CloudApi.Domain.Roles.Owner))
     .AddPolicy(Policies.Edge, p => p.AddAuthenticationSchemes(EdgeAuthenticationHandler.SchemeName)
         .RequireAuthenticatedUser().RequireClaim(EdgeContext.EdgeIdClaim));
+
+// Политика на каждое право (ТЗ §8): роль из JWT (сверена с БД в OnTokenValidated) и не временный пароль.
+foreach (var permission in ClubOS.CloudApi.Security.Permissions.All)
+{
+    authorization.AddPolicy(ClubOS.CloudApi.Security.Permissions.Policy(permission), p => p
+        .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
+        .RequireAuthenticatedUser()
+        .RequireClaim(StaffContext.TenantClaim)
+        .RequireAssertion(ctx =>
+            ctx.User.FindFirst(StaffContext.MustChangePasswordClaim)?.Value != "1" &&
+            ClubOS.CloudApi.Security.Permissions.Has(ctx.User.FindFirst("role")?.Value ?? string.Empty, permission)));
+}
 
 builder.Services.AddRateLimiter(o =>
 {
@@ -119,6 +131,12 @@ if (builder.Configuration.GetValue("Database:MigrateOnStartup", true))
     }
 }
 
+// Серверные команды обслуживания: dotnet ClubOS.CloudApi.dll admin reset-password <email>
+if (AdminCli.IsAdminCommand(args))
+{
+    return await AdminCli.RunAsync(app.Services, args);
+}
+
 if (trustForwardedHeaders)
 {
     app.UseForwardedHeaders();
@@ -142,9 +160,11 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = c => c
 
 app.MapAuthEndpoints();
 app.MapStaffEndpoints();
+app.MapStaffManagementEndpoints();
 app.MapEdgeEndpoints();
 
-app.Run();
+await app.RunAsync();
+return 0;
 
 /// <summary>Точка входа (partial — для WebApplicationFactory в интеграционных тестах).</summary>
 public partial class Program;

@@ -9,13 +9,13 @@ import { formatDateTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
 
 export default function EnrollmentPage() {
-  const { location, me } = useShell();
-  const isOwner = me.user.role === "Owner";
+  const { location, can } = useShell();
+  const isOwner = can("enrollment.manage");
 
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-bold text-slate-900">{t.enrollment.title}</h1>
-      {!isOwner && <p className="text-sm text-slate-600">Создавать токены может только Owner.</p>}
+      {!isOwner && <p className="text-sm text-slate-600">Создавать токены может владелец или администратор.</p>}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <EdgeTokenForm locationId={location.locationId} timezone={location.timezone} disabled={!isOwner} />
         <DeviceTokenForm disabled={!isOwner} />

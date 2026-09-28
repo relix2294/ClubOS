@@ -92,6 +92,7 @@ cd infrastructure/vps && docker compose up -d --build
 | Симптом | Где смотреть |
 |---------|-------------|
 | Сайт не открывается / ошибка сертификата | `docker compose logs caddy`: DNS A-запись, открыт ли 80/443 |
+| Забыт или скомпрометирован пароль владельца | `docker compose exec cloud-api dotnet ClubOS.CloudApi.dll admin reset-password <email>`: временный пароль, при входе потребуется задать новый |
 | Не входит в Admin Web | `docker compose logs admin-web cloud-api`; 429 — сработал лимит попыток входа (20 в минуту с IP) |
 | «Edge не на связи» | на сервере клуба `edge-cli status` и Event Viewer (источник ClubOSEdge); `docker compose logs cloud-api` |
 | Место на диске | `docker system df`; старые образы — `docker image prune` |

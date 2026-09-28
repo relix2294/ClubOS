@@ -38,8 +38,18 @@ public sealed class Zone
 
 public static class Roles
 {
+    /// <summary>Владелец: всё, включая управление персоналом.</summary>
     public const string Owner = "Owner";
+
+    /// <summary>Администратор клуба: всё, кроме управления персоналом.</summary>
+    public const string Admin = "Admin";
+
+    /// <summary>Оператор смены: устройства, команды, сессии, аудит.</summary>
     public const string Operator = "Operator";
+
+    public static readonly IReadOnlyList<string> All = [Owner, Admin, Operator];
+
+    public static bool IsValid(string? role) => role is not null && All.Contains(role);
 }
 
 public sealed class User
@@ -52,6 +62,18 @@ public sealed class User
     public required string Role { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTimeOffset CreatedAtUtc { get; set; }
+
+    /// <summary>
+    /// Версия выданных токенов. Увеличивается при смене пароля/роли/отключении — все ранее выданные
+    /// access-токены перестают приниматься сразу (проверка на каждом запросе), refresh отзываются.
+    /// </summary>
+    public int TokenVersion { get; set; }
+
+    /// <summary>Временный пароль (создан или сброшен администратором) — до смены доступен только /me.</summary>
+    public bool MustChangePassword { get; set; }
+
+    public DateTimeOffset? PasswordChangedAtUtc { get; set; }
+    public DateTimeOffset? LastLoginAtUtc { get; set; }
 }
 
 /// <summary>Refresh-токен с ротацией: хранится только SHA-256 хэш (ТЗ §27.3).</summary>

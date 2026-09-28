@@ -20,7 +20,10 @@ const ALLOWED = [
   /^sessions\/[\w-]+\/end$/,
   /^audit$/,
   /^enrollment-tokens\/(device|edge)$/,
+  /^staff$/,
+  /^staff\/[\w-]+\/(role|activate|deactivate|reset-password)$/,
 ];
+// Смена своего пароля идёт через /api/auth/password (BFF обновляет cookie).
 
 type Ctx = { params: Promise<{ path: string[] }> };
 

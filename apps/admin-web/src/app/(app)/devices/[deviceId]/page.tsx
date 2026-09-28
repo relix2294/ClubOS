@@ -15,7 +15,7 @@ import { usePolling } from "@/lib/usePolling";
 
 export default function DevicePage() {
   const { deviceId } = useParams<{ deviceId: string }>();
-  const { location } = useShell();
+  const { location, can } = useShell();
   const device = usePolling((s) => apiGet<DeviceView>(`devices/${deviceId}`, s), 3000, [deviceId]);
 
   if (device.error instanceof ApiError && device.error.status === 404) {
@@ -44,7 +44,7 @@ export default function DevicePage() {
             <InventoryCard device={device.data} timezone={location.timezone} />
             <SessionCard device={device.data} onChange={device.refresh} />
             <CommandsCard deviceId={deviceId} timezone={location.timezone} />
-            <DeviceAuditCard deviceId={deviceId} timezone={location.timezone} />
+            {can("audit.view") && <DeviceAuditCard deviceId={deviceId} timezone={location.timezone} />}
           </div>
         </>
       )}
@@ -83,7 +83,7 @@ function InventoryCard({ device, timezone }: { device: DeviceView; timezone: str
 }
 
 function SessionCard({ device, onChange }: { device: DeviceView; onChange: () => void }) {
-  const { location } = useShell();
+  const { location, can } = useShell();
   const history = usePolling((s) => apiGet<SessionView[]>(`devices/${device.deviceId}/sessions`, s), 5000, [device.deviceId]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -139,7 +139,7 @@ function SessionCard({ device, onChange }: { device: DeviceView; onChange: () =>
           </p>
         )}
 
-        <div className="flex gap-3">
+        <div className={can("sessions.manage") ? "flex gap-3" : "hidden"}>
           {!session && (
             <Button disabled={busy || device.status === "Offline"} onClick={() => act(() => apiPost(`devices/${device.deviceId}/sessions`))}>
               {t.device.startSession}
@@ -177,6 +177,7 @@ function SessionCard({ device, onChange }: { device: DeviceView; onChange: () =>
 }
 
 function CommandsCard({ deviceId, timezone }: { deviceId: string; timezone: string }) {
+  const { can } = useShell();
   const commands = usePolling((s) => apiGet<CommandView[]>(`devices/${deviceId}/commands`, s), 2000, [deviceId]);
   const [title, setTitle] = useState("Сообщение от администратора");
   const [message, setMessage] = useState("");
@@ -208,7 +209,7 @@ function CommandsCard({ deviceId, timezone }: { deviceId: string; timezone: stri
 
   return (
     <Card title={t.device.commands}>
-      <form onSubmit={submit} className="flex flex-col gap-3" aria-label={t.device.showMessage}>
+      <form onSubmit={submit} className={can("devices.command") ? "flex flex-col gap-3" : "hidden"} aria-label={t.device.showMessage}>
         <h3 className="text-sm font-semibold text-slate-700">{t.device.showMessage}</h3>
         <Field label={t.device.messageTitle}>
           <input className={inputClass} maxLength={80} required value={title} onChange={(e) => setTitle(e.target.value)} />

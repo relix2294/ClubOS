@@ -26,6 +26,8 @@ public sealed class TokenService(ClubOsDbContext db, IOptions<AuthOptions> optio
             new Claim(JwtRegisteredClaimNames.Email, user.Email),
             new Claim(StaffContext.TenantClaim, user.OrganizationId),
             new Claim("role", user.Role),
+            new Claim(StaffContext.TokenVersionClaim, user.TokenVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            new Claim(StaffContext.MustChangePasswordClaim, user.MustChangePassword ? "1" : "0"),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N"))
         };
 
@@ -90,6 +92,18 @@ public sealed class TokenService(ClubOsDbContext db, IOptions<AuthOptions> optio
         stored.ReplacedById = tokens.RefreshTokenId;
         await db.SaveChangesAsync(ct);
         return (user, tokens);
+    }
+
+    /// <summary>
+    /// Отзыв всех сессий пользователя: увеличивает TokenVersion (access-токены отклоняются на следующем
+    /// запросе) и отзывает все refresh-токены. Вызывающий сохраняет изменения (SaveChanges).
+    /// </summary>
+    public async Task RevokeAllAsync(User user, CancellationToken ct)
+    {
+        var now = time.GetUtcNow();
+        user.TokenVersion++;
+        await db.RefreshTokens.Where(x => x.UserId == user.Id && x.RevokedAtUtc == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.RevokedAtUtc, now), ct);
     }
 
     public async Task RevokeAsync(string refreshSecret, CancellationToken ct)

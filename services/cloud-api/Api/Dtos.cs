@@ -16,8 +16,36 @@ public sealed record LoginResponse(
     DateTimeOffset RefreshExpiresAtUtc,
     UserView User);
 
-public sealed record UserView(string UserId, string Email, string DisplayName, string Role, string OrganizationId,
-    string OrganizationName);
+public sealed record UserView(
+    string UserId,
+    string Email,
+    string DisplayName,
+    string Role,
+    string OrganizationId,
+    string OrganizationName,
+    IReadOnlyList<string> Permissions,
+    bool MustChangePassword);
+
+// ---- Персонал (ТЗ §8) ----
+
+public sealed record StaffMemberView(
+    string UserId,
+    string Email,
+    string DisplayName,
+    string Role,
+    bool IsActive,
+    bool MustChangePassword,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset? LastLoginAtUtc);
+
+public sealed record CreateStaffRequest(string Email, string DisplayName, string Role);
+
+/// <summary>Результат создания сотрудника или сброса пароля: временный пароль показывается один раз.</summary>
+public sealed record TemporaryPasswordResponse(StaffMemberView User, string TemporaryPassword);
+
+public sealed record ChangeRoleRequest(string Role);
+
+public sealed record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
 public sealed record MeResponse(UserView User, IReadOnlyList<LocationView> Locations);
 

@@ -86,6 +86,14 @@ E2E_PASSWORD=<пароль-owner> npm run test:e2e # в apps/admin-web, прот
 | CI | ✅ зелёный | .NET + integration, web, Windows (Agent + Edge, unit-тесты, пробный запуск), e2e compose, валидация VPS-конфига |
 | Документация | ✅ | README, API, runbook, security, THIRD_PARTY, DEVIATIONS D-001…D-015 |
 
+## 5a. M1 — в работе
+
+| Блок | Статус | Проверка |
+|------|--------|----------|
+| Персонал и доступ (ТЗ §8): роли Owner/Admin/Operator, 6 прав на backend, управление сотрудниками, временные пароли, смена пароля, мгновенный отзыв доступа, Argon2id с переходом с PBKDF2, `admin reset-password` на сервере | ✅ | unit 75/75, integration 21/21 (7 новых), Playwright «владелец → оператор → смена пароля → отключение» |
+| MFA (TOTP) для Owner/Admin | ⬜ | — |
+| Выбор локации в UI, права по локациям | ⬜ | — |
+
 ## 6. Следующие шаги
 
 1. Развернуть Cloud на VPS, Edge на сервере клуба, агент на игровом ПК; выполнить чек-листы runbook'ов и заполнить п. 4.

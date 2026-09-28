@@ -15,6 +15,7 @@
     <ProjectReference Include="../../packages/contracts-dotnet/ClubOS.Contracts.csproj" />
     <ProjectReference Include="../../packages/security-dotnet/ClubOS.Security.csproj" />
     <ProjectReference Include="../../services/edge-controller/ClubOS.EdgeController.csproj" />
+    <ProjectReference Include="../../services/cloud-api/ClubOS.CloudApi.csproj" />
     <ProjectReference Include="../../services/windows-agent/ClubOS.Agent.Core/ClubOS.Agent.Core.csproj" />
   </ItemGroup>
 

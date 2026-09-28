@@ -11,6 +11,13 @@ public static class Mapping
 
     public static readonly TimeSpan EdgeOnlineWindow = TimeSpan.FromSeconds(30);
 
+    public static UserView ToView(this User u, string organizationName) => new(
+        u.Id, u.Email, u.DisplayName, u.Role, u.OrganizationId, organizationName,
+        u.MustChangePassword ? new List<string>() : Security.Permissions.For(u.Role).Order().ToList(), u.MustChangePassword);
+
+    public static StaffMemberView ToStaffView(this User u) => new(
+        u.Id, u.Email, u.DisplayName, u.Role, u.IsActive, u.MustChangePassword, u.CreatedAtUtc, u.LastLoginAtUtc);
+
     public static DeviceStatus EffectiveStatus(Device d, DateTimeOffset now) =>
         d.LastHeartbeatUtc is null || now - d.LastHeartbeatUtc > HeartbeatWindow ? DeviceStatus.Offline : d.Status;
 

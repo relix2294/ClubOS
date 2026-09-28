@@ -22,8 +22,30 @@ Tenant берётся только из JWT. Чужие объекты возв�
 | POST | `/api/v1/devices/{deviceId}/sessions` | запрос старта: **202**, `state=Created`; `Active` приходит по событию от Edge. **409**, если открытая сессия уже есть |
 | POST | `/api/v1/sessions/{sessionId}/end` | запрос завершения (идемпотентно): **202**, или **200** если уже завершена/запрошена |
 | GET | `/api/v1/audit?locationId=&target=device:{id}&limit=` | журнал аудита (новые сверху) |
-| POST | `/api/v1/enrollment-tokens/device` | **Owner**. `{locationId, zoneId, displayName, simulated}` → одноразовый токен (24 ч) |
-| POST | `/api/v1/enrollment-tokens/edge` | **Owner**. `{locationId, name}` → одноразовый токен Edge |
+| POST | `/api/v1/enrollment-tokens/device` | `enrollment.manage`. `{locationId, zoneId, displayName, simulated}` → одноразовый токен (24 ч) |
+| POST | `/api/v1/enrollment-tokens/edge` | `enrollment.manage`. `{locationId, name}` → одноразовый токен Edge |
+| POST | `/api/v1/me/password` | любой сотрудник: `{currentPassword, newPassword}` → новые токены; прочие сессии отзываются |
+| GET | `/api/v1/staff` | `staff.manage`: сотрудники организации |
+| POST | `/api/v1/staff` | `staff.manage`: `{email, displayName, role}` → `{user, temporaryPassword}` (показывается один раз) |
+| POST | `/api/v1/staff/{id}/role` | `staff.manage`: `{role}`; последнего активного Owner понизить нельзя |
+| POST | `/api/v1/staff/{id}/deactivate`, `/activate` | `staff.manage`: отключение действует сразу; себя отключить нельзя |
+| POST | `/api/v1/staff/{id}/reset-password` | `staff.manage`: временный пароль, все сессии сотрудника отозваны |
+
+### Роли и права (ТЗ §8)
+
+| Право | Owner | Admin | Operator |
+|-------|:-----:|:-----:|:--------:|
+| `devices.view` — устройства, команды, история сессий | ✓ | ✓ | ✓ |
+| `devices.command` — ShowMessage, LockTestMode | ✓ | ✓ | ✓ |
+| `sessions.manage` — старт/стоп сессий | ✓ | ✓ | ✓ |
+| `audit.view` — журнал аудита | ✓ | ✓ | ✓ |
+| `enrollment.manage` — токены Edge и ПК | ✓ | ✓ | — |
+| `staff.manage` — персонал | ✓ | — | — |
+
+Токен проверяется по БД на каждом запросе (активность, роль, версия токенов): отключение,
+смена роли или пароля действуют сразу. С временным паролем доступны только `/me` и `/me/password`.
+
+Восстановление доступа (на сервере): `docker compose exec cloud-api dotnet ClubOS.CloudApi.dll admin reset-password <email>`.
 | GET | `/health/live`, `/health/ready` | liveness / readiness (PostgreSQL) |
 
 Rate limit на `/auth/*` и enrollment: `RateLimits:AuthPerMinute` (по умолчанию 20 запросов в минуту с одного IP).

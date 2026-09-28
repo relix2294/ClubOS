@@ -13,7 +13,7 @@ public static class AuthEndpoints
         var group = app.MapGroup("/api/v1/auth").WithTags("Auth").RequireRateLimiting(RateLimits.Auth);
 
         group.MapPost("/login", async (LoginRequest request, ClubOsDbContext db, TokenService tokens, AuditWriter audit,
-            CancellationToken ct) =>
+            TimeProvider time, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrEmpty(request.Password))
             {
@@ -37,6 +37,13 @@ public static class AuthEndpoints
                 return Problems.Unauthorized("Неверный email или пароль.");
             }
 
+            // Прозрачный переход на Argon2id: хэш старого формата заменяется при успешном входе.
+            if (PasswordHasher.NeedsRehash(user.PasswordHash))
+            {
+                user.PasswordHash = PasswordHasher.Hash(request.Password);
+            }
+
+            user.LastLoginAtUtc = time.GetUtcNow();
             var issued = await tokens.IssueAsync(user, ct);
             audit.Write(user.OrganizationId, null, $"user:{user.Id}", "auth.login", $"user:{user.Id}", AuditResults.Success);
             await db.SaveChangesAsync(ct);
@@ -74,7 +81,6 @@ public static class AuthEndpoints
     {
         var org = await db.Organizations.AsNoTracking().SingleAsync(x => x.Id == user.OrganizationId, ct);
         return new LoginResponse(issued.AccessToken, issued.AccessExpiresAtUtc, issued.RefreshToken,
-            issued.RefreshExpiresAtUtc,
-            new UserView(user.Id, user.Email, user.DisplayName, user.Role, org.Id, org.Name));
+            issued.RefreshExpiresAtUtc, user.ToView(org.Name));
     }
 }

@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, type ReactNode } from "react";
-import type { LocationView, MeResponse } from "@clubos/contracts";
+import type { LocationView, MeResponse, Permission } from "@clubos/contracts";
 import { UNAUTHORIZED_EVENT, apiGet } from "@/lib/api";
-import { t } from "@/lib/i18n";
+import { roleLabel, t } from "@/lib/i18n";
 import { usePolling } from "@/lib/usePolling";
 import { ErrorState, Loading } from "./ui";
 
@@ -13,6 +13,8 @@ interface ShellContext {
   me: MeResponse;
   location: LocationView;
   refreshMe: () => void;
+  /** Есть ли у текущего сотрудника право. UI только скрывает кнопки — проверка на backend. */
+  can: (permission: Permission) => boolean;
 }
 
 const Ctx = createContext<ShellContext | null>(null);
@@ -23,10 +25,12 @@ export function useShell(): ShellContext {
   return value;
 }
 
-const nav = [
-  { href: "/", label: t.nav.dashboard },
-  { href: "/audit", label: t.nav.audit },
-  { href: "/enrollment", label: t.nav.enrollment },
+const allNav: { href: string; label: string; permission?: Permission }[] = [
+  { href: "/", label: t.nav.dashboard, permission: "devices.view" },
+  { href: "/audit", label: t.nav.audit, permission: "audit.view" },
+  { href: "/enrollment", label: t.nav.enrollment, permission: "enrollment.manage" },
+  { href: "/staff", label: t.nav.staff, permission: "staff.manage" },
+  { href: "/account", label: t.nav.account },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -40,6 +44,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [router]);
   // /me включает статус Edge — обновляем раз в 10 секунд.
   const { data: me, error, refresh } = usePolling((signal) => apiGet<MeResponse>("me", signal), 10_000);
+  const mustChangePassword = me?.user.mustChangePassword === true;
+
+  // Временный пароль: до смены доступна только страница «Мой пароль» (backend тоже запрещает остальное).
+  useEffect(() => {
+    if (mustChangePassword && pathname !== "/account") {
+      router.replace("/account");
+    }
+  }, [mustChangePassword, pathname, router]);
 
   if (error && !me) {
     return (
@@ -68,8 +80,19 @@ export function AppShell({ children }: { children: ReactNode }) {
     router.refresh();
   };
 
+  const can = (permission: Permission) => me.user.permissions.includes(permission);
+  const nav = allNav.filter((item) => !item.permission || can(item.permission));
+
+  if (mustChangePassword && pathname !== "/account") {
+    return (
+      <div className="mx-auto max-w-3xl p-8">
+        <Loading />
+      </div>
+    );
+  }
+
   return (
-    <Ctx.Provider value={{ me, location, refreshMe: refresh }}>
+    <Ctx.Provider value={{ me, location, refreshMe: refresh, can }}>
       <div className="flex min-h-screen">
         <aside className="hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white md:flex">
           <div className="border-b border-slate-100 px-5 py-4">
@@ -127,13 +150,18 @@ export function AppShell({ children }: { children: ReactNode }) {
                 ))}
               </nav>
               <span className="text-slate-600" data-testid="current-user">
-                {me.user.email} · {me.user.role}
+                {me.user.displayName} · {roleLabel(me.user.role)}
               </span>
               <button type="button" onClick={logout} className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50">
                 {t.nav.logout}
               </button>
             </div>
           </header>
+          {mustChangePassword && (
+            <div role="alert" className="border-b border-amber-300 bg-amber-50 px-6 py-3 text-sm text-amber-900">
+              {t.account.mustChangeBanner}
+            </div>
+          )}
           <main className="flex-1 p-6">{children}</main>
         </div>
       </div>

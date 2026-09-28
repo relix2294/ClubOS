@@ -7,6 +7,12 @@ public sealed record StaffContext(string UserId, string TenantId, string Role, s
 {
     public const string TenantClaim = "org";
 
+    /// <summary>Версия токенов пользователя; должна совпадать с User.TokenVersion в БД.</summary>
+    public const string TokenVersionClaim = "tv";
+
+    /// <summary>"1" — временный пароль: доступны только /me и смена пароля.</summary>
+    public const string MustChangePasswordClaim = "mcp";
+
     public string Actor => $"user:{UserId}";
 
     public static StaffContext From(ClaimsPrincipal principal)

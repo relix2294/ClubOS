@@ -17,7 +17,46 @@ export const t = {
     dashboard: "Устройства",
     audit: "Журнал аудита",
     enrollment: "Подключение",
+    staff: "Персонал",
+    account: "Мой пароль",
     logout: "Выйти",
+  },
+  account: {
+    title: "Мой пароль",
+    mustChangeBanner: "Вы вошли по временному паролю. Задайте свой пароль — до этого остальные разделы недоступны.",
+    current: "Текущий пароль",
+    next: "Новый пароль",
+    repeat: "Повторите новый пароль",
+    hint: "Не короче 10 символов, без email. Остальные ваши сессии (другие браузеры) будут завершены.",
+    mismatch: "Пароли не совпадают.",
+    submit: "Сменить пароль",
+    done: "Пароль изменён.",
+  },
+  staff: {
+    title: "Персонал",
+    add: "Добавить сотрудника",
+    email: "Email",
+    name: "Имя",
+    role: "Роль",
+    create: "Создать",
+    status: "Статус",
+    active: "Активен",
+    inactive: "Отключён",
+    temporary: "временный пароль",
+    lastLogin: "Последний вход",
+    deactivate: "Отключить",
+    activate: "Включить",
+    resetPassword: "Сбросить пароль",
+    you: "это вы",
+    tempTitle: "Временный пароль",
+    tempHint: "Передайте сотруднику лично. Показывается один раз; при первом входе он задаст свой пароль.",
+    confirmDeactivate: "Отключить сотрудника? Все его сессии будут завершены сразу.",
+    confirmReset: "Сбросить пароль? Текущие сессии сотрудника будут завершены.",
+    roles: {
+      Owner: "Владелец — всё, включая персонал",
+      Admin: "Администратор — устройства, сессии, подключение ПК",
+      Operator: "Оператор — устройства, команды, сессии",
+    },
   },
   future: {
     title: "Будущие модули",
@@ -135,7 +174,23 @@ export const sessionStateLabel: Record<SessionState, string> = {
   Failed: "Не запущена",
 };
 
+const roleLabels: Record<string, string> = {
+  Owner: "Владелец",
+  Admin: "Администратор",
+  Operator: "Оператор",
+};
+
+export function roleLabel(role: string): string {
+  return roleLabels[role] ?? role;
+}
+
 const actionLabels: Record<string, string> = {
+  "staff.created": "Добавлен сотрудник",
+  "staff.role_changed": "Изменена роль сотрудника",
+  "staff.deactivated": "Сотрудник отключён",
+  "staff.activated": "Сотрудник включён",
+  "staff.password_reset": "Сброшен пароль сотрудника",
+  "auth.password_changed": "Смена пароля",
   "auth.login": "Вход в систему",
   "edge.enrolled": "Edge зарегистрирован",
   "device.enrolled": "Устройство зарегистрировано",

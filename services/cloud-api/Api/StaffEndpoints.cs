@@ -2,6 +2,7 @@ using System.Text.Json;
 using ClubOS.CloudApi.Data;
 using ClubOS.CloudApi.Domain;
 using ClubOS.CloudApi.Infrastructure;
+using ClubOS.CloudApi.Security;
 using ClubOS.Contracts;
 using Microsoft.EntityFrameworkCore;
 
@@ -22,21 +23,24 @@ public static class StaffEndpoints
 
     public static void MapStaffEndpoints(this IEndpointRouteBuilder app)
     {
-        var api = app.MapGroup("/api/v1").RequireAuthorization(Policies.Staff);
+        var api = app.MapGroup("/api/v1");
 
-        api.MapGet("/me", GetMe).WithTags("Auth");
-        api.MapGet("/locations/{locationId}/devices", ListDevices).WithTags("Devices");
-        api.MapGet("/devices/{deviceId}", GetDevice).WithTags("Devices");
-        api.MapGet("/devices/{deviceId}/commands", ListCommands).WithTags("Commands");
-        api.MapPost("/devices/{deviceId}/commands", IssueCommand).WithTags("Commands");
-        api.MapGet("/devices/{deviceId}/sessions", ListSessions).WithTags("Sessions");
-        api.MapPost("/devices/{deviceId}/sessions", StartSession).WithTags("Sessions");
-        api.MapPost("/sessions/{sessionId}/end", EndSession).WithTags("Sessions");
-        api.MapGet("/audit", ListAudit).WithTags("Audit");
+        // /me доступен и с временным паролем: UI узнаёт, что нужно сменить пароль, и права пользователя.
+        api.MapGet("/me", GetMe).WithTags("Auth").RequireAuthorization(Policies.Staff);
 
-        var owner = app.MapGroup("/api/v1/enrollment-tokens").RequireAuthorization(Policies.Owner).WithTags("Enrollment");
-        owner.MapPost("/device", CreateDeviceToken);
-        owner.MapPost("/edge", CreateEdgeToken);
+        api.MapGet("/locations/{locationId}/devices", ListDevices).WithTags("Devices").RequirePermission(Permissions.DevicesView);
+        api.MapGet("/devices/{deviceId}", GetDevice).WithTags("Devices").RequirePermission(Permissions.DevicesView);
+        api.MapGet("/devices/{deviceId}/commands", ListCommands).WithTags("Commands").RequirePermission(Permissions.DevicesView);
+        api.MapPost("/devices/{deviceId}/commands", IssueCommand).WithTags("Commands").RequirePermission(Permissions.DevicesCommand);
+        api.MapGet("/devices/{deviceId}/sessions", ListSessions).WithTags("Sessions").RequirePermission(Permissions.DevicesView);
+        api.MapPost("/devices/{deviceId}/sessions", StartSession).WithTags("Sessions").RequirePermission(Permissions.SessionsManage);
+        api.MapPost("/sessions/{sessionId}/end", EndSession).WithTags("Sessions").RequirePermission(Permissions.SessionsManage);
+        api.MapGet("/audit", ListAudit).WithTags("Audit").RequirePermission(Permissions.AuditView);
+
+        var enrollment = app.MapGroup("/api/v1/enrollment-tokens").WithTags("Enrollment")
+            .RequirePermission(Permissions.EnrollmentManage);
+        enrollment.MapPost("/device", CreateDeviceToken);
+        enrollment.MapPost("/edge", CreateEdgeToken);
     }
 
     private static async Task<IResult> GetMe(HttpContext http, ClubOsDbContext db, TimeProvider time, CancellationToken ct)
@@ -56,8 +60,7 @@ public static class StaffEndpoints
             zones.Where(z => z.LocationId == l.Id).Select(z => new ZoneView(z.Id, z.Name, z.PricePerHourMinorUnits)).ToList(),
             edges.Where(e => e.LocationId == l.Id).Select(e => e.ToView(now)).ToList())).ToList();
 
-        return Results.Ok(new MeResponse(
-            new UserView(user.Id, user.Email, user.DisplayName, user.Role, org.Id, org.Name), views));
+        return Results.Ok(new MeResponse(user.ToView(org.Name), views));
     }
 
     private static async Task<IResult> ListDevices(string locationId, HttpContext http, ClubOsDbContext db,

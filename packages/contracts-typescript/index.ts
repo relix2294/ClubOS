@@ -151,13 +151,56 @@ export interface LoginRequest {
   password: string;
 }
 
+export type StaffRole = "Owner" | "Admin" | "Operator";
+
+export type Permission =
+  | "devices.view"
+  | "devices.command"
+  | "sessions.manage"
+  | "audit.view"
+  | "enrollment.manage"
+  | "staff.manage";
+
 export interface UserView {
   userId: string;
   email: string;
   displayName: string;
-  role: string;
+  role: StaffRole;
   organizationId: string;
   organizationName: string;
+  /** Права роли (пусто, пока не сменён временный пароль). Проверяются на backend. */
+  permissions: Permission[];
+  mustChangePassword: boolean;
+}
+
+// ---- Персонал (ТЗ §8) ----
+
+export interface StaffMemberView {
+  userId: string;
+  email: string;
+  displayName: string;
+  role: StaffRole;
+  isActive: boolean;
+  mustChangePassword: boolean;
+  createdAtUtc: string;
+  lastLoginAtUtc: string | null;
+}
+
+export interface CreateStaffRequest {
+  email: string;
+  displayName: string;
+  role: StaffRole;
+}
+
+export interface TemporaryPasswordResponse {
+  user: StaffMemberView;
+  /** Показывается один раз. */
+  temporaryPassword: string;
+}
+
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
 }
 
 export interface LoginResponse {

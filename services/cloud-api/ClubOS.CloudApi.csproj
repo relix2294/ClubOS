@@ -17,6 +17,7 @@
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" />
+    <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
   </ItemGroup>
 
   <ItemGroup>
