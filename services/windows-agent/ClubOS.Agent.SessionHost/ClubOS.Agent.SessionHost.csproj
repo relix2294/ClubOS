@@ -8,11 +8,14 @@
     <RootNamespace>ClubOS.Agent.SessionHost</RootNamespace>
     <AssemblyName>ClubOS.Agent.SessionHost</AssemblyName>
     <Version>0.1.0</Version>
+    <!-- LibraryImport и указатель на функцию для хука клавиатуры (KeyboardGuard). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <!--
     AgentSessionHost — процесс в интерактивной сессии пользователя (запускается при входе
-    через Scheduled Task). Единственное место, где рисуется UI агента (ТЗ §11.1).
+    через Scheduled Task, при сбое — службой). Единственное место, где рисуется UI агента (ТЗ §11.1):
+    сообщения, overlay LockTestMode и Player Shell (экран клуба, индикатор сессии).
   -->
 
   <ItemGroup>

@@ -111,6 +111,8 @@ public sealed class SyncIngestor(ClubOsDbContext db, AuditWriter audit, TimeProv
                 return await ApplySessionRejected(edge, evt, ContractJson.FromElement<SessionStartRejectedPayload>(evt.Payload), ct);
             case EventTypes.SessionEnded:
                 return await ApplySessionEnded(edge, evt, ContractJson.FromElement<SessionEndedPayload>(evt.Payload), ct);
+            case EventTypes.SessionExtended:
+                return await ApplySessionExtended(edge, evt, ContractJson.FromElement<SessionExtendedPayload>(evt.Payload), ct);
             case EventTypes.CommandStateChanged:
                 return await ApplyCommandState(edge, evt, ContractJson.FromElement<CommandStateChangedPayload>(evt.Payload), ct);
             case EventTypes.DeviceConnectivityChanged:
@@ -150,9 +152,50 @@ public sealed class SyncIngestor(ClubOsDbContext db, AuditWriter audit, TimeProv
         }
 
         session.StartedAtUtc ??= p.StartedAtUtc;
+        if (p.PlannedEndAtUtc is { } plannedEnd)
+        {
+            // Продление могло прийти раньше (другой порядок невозможен в одном batch, но защищаемся): берём позднее.
+            session.PlannedEndAtUtc = session.PlannedEndAtUtc is { } known && known > plannedEnd ? known : plannedEnd;
+            session.DurationMinutes ??= (int)Math.Round((plannedEnd - p.StartedAtUtc).TotalMinutes);
+        }
+
         audit.Write(edge.TenantId, edge.LocationId, p.Actor, "session.started", $"device:{p.DeviceId}",
             AuditResults.Success, evt.CorrelationId,
-            new { sessionId = p.SessionId, p.StartedAtUtc, p.PriceSnapshot.PricePerHourMinorUnits, p.Origin, via = edge.Actor });
+            new
+            {
+                sessionId = p.SessionId,
+                p.StartedAtUtc,
+                p.PriceSnapshot.PricePerHourMinorUnits,
+                p.Origin,
+                p.PlannedEndAtUtc,
+                via = edge.Actor
+            });
+        return null;
+    }
+
+    private async Task<string?> ApplySessionExtended(EdgeContext edge, EventEnvelope evt, SessionExtendedPayload p,
+        CancellationToken ct)
+    {
+        if (await FindDevice(edge, p.DeviceId, ct) is null)
+        {
+            return "unknown device";
+        }
+
+        var session = await db.Sessions.SingleOrDefaultAsync(x => x.Id == p.SessionId && x.TenantId == edge.TenantId, ct);
+        if (session is null)
+        {
+            return "unknown session";
+        }
+
+        if (session.State != SessionState.Ended &&
+            (session.PlannedEndAtUtc is null || session.PlannedEndAtUtc < p.PlannedEndAtUtc))
+        {
+            session.PlannedEndAtUtc = p.PlannedEndAtUtc;
+        }
+
+        audit.Write(edge.TenantId, edge.LocationId, p.Actor, "session.extended", $"device:{p.DeviceId}",
+            AuditResults.Success, evt.CorrelationId,
+            new { sessionId = p.SessionId, p.AddedMinutes, p.PlannedEndAtUtc, via = edge.Actor });
         return null;
     }
 
@@ -214,6 +257,7 @@ public sealed class SyncIngestor(ClubOsDbContext db, AuditWriter audit, TimeProv
         session.Rounding = p.PriceSnapshot.Rounding;
         session.RuleVersion = p.PriceSnapshot.RuleVersion;
         session.EndedBy = p.Actor;
+        session.EndReason = p.Reason;
         audit.Write(edge.TenantId, edge.LocationId, p.Actor, "session.ended", $"device:{p.DeviceId}",
             AuditResults.Success, evt.CorrelationId,
             new
@@ -224,6 +268,7 @@ public sealed class SyncIngestor(ClubOsDbContext db, AuditWriter audit, TimeProv
                 p.TotalMinorUnits,
                 currency = p.PriceSnapshot.Currency,
                 via = edge.Actor,
+                reason = p.Reason,
                 recalculationMatches = expected == p.TotalMinorUnits
             });
         return null;

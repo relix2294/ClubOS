@@ -1,3 +1,4 @@
+using ClubOS.Agent.Core.PlayerShell;
 using ClubOS.Contracts;
 
 namespace ClubOS.Agent.Core;
@@ -18,6 +19,9 @@ public sealed class AgentOptions
     public int HeartbeatSeconds { get; set; } = 10;
     public int CommandPollSeconds { get; set; } = 20;
     public int MaxBackoffSeconds { get; set; } = 30;
+
+    /// <summary>Player Shell (M1): экран клуба и индикатор сессии. По умолчанию выключен (поведение M0).</summary>
+    public ShellOptions Shell { get; set; } = new();
 }
 
 /// <summary>Защита приватного ключа устройства на диске (Windows: DPAPI).</summary>
@@ -44,6 +48,14 @@ public interface IUserPresenter
     Task<PresentResult> ShowMessageAsync(string commandId, string title, string message, CancellationToken ct);
 
     Task<PresentResult> SetLockAsync(string commandId, bool locked, string? reason, CancellationToken ct);
+
+    /// <summary>Новое состояние Player Shell. Реализация хранит последнее и восстанавливает его после переподключения UI.</summary>
+    Task<PresentResult> UpdateShellAsync(ShellState state, CancellationToken ct);
+
+    /// <summary>Куда передавать ввод техника из UI (PIN режима обслуживания).</summary>
+    void AttachShellInput(IShellInput input)
+    {
+    }
 }
 
 public sealed record PresentResult(bool Ok, string? Error)

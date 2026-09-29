@@ -128,5 +128,8 @@ public class CommandExecutorTests : IDisposable
             IsLocked = locked;
             return Task.FromResult(PresentResult.Success);
         }
+
+        public Task<PresentResult> UpdateShellAsync(ClubOS.Agent.Core.PlayerShell.ShellState state, CancellationToken ct) =>
+            Task.FromResult(PresentResult.Success);
     }
 }

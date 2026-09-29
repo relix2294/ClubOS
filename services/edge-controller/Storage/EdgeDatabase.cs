@@ -86,7 +86,17 @@ public sealed class EdgeDatabase : IDisposable
             Exec(connection, tx, "PRAGMA user_version = 1;");
             tx.Commit();
         }
+
+        if (version < 2)
+        {
+            using var tx = connection.BeginTransaction();
+            Exec(connection, tx, Schema.V2);
+            Exec(connection, tx, "PRAGMA user_version = 2;");
+            tx.Commit();
+        }
     }
+
+    public int SchemaVersion => Convert.ToInt32(Read(c => Scalar(c, "PRAGMA user_version;")));
 
     private static object? Scalar(SqliteConnection c, string sql)
     {
@@ -188,6 +198,14 @@ public sealed class EdgeDatabase : IDisposable
                 updated_at_utc  TEXT NOT NULL
             );
             CREATE INDEX ix_device_commands_device ON device_commands(device_id, state);
+            """;
+
+        /// <summary>M1: лимит времени сессии (Player Shell), причина завершения.</summary>
+        public const string V2 = """
+            ALTER TABLE sessions ADD COLUMN planned_end_at_utc TEXT NULL;
+            ALTER TABLE sessions ADD COLUMN end_reason TEXT NULL;
+            CREATE INDEX ix_sessions_planned_end ON sessions(planned_end_at_utc) WHERE state = 'Active';
+            CREATE INDEX ix_sessions_device_ended ON sessions(device_id, ended_at_utc);
             """;
     }
 }

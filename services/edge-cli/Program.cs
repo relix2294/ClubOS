@@ -43,8 +43,20 @@ try
                 var device = parsed.Positional.ElementAtOrDefault(0);
                 if (device is null)
                 {
-                    Console.Error.WriteLine("Использование: edge-cli start <deviceId|имя устройства> [--actor <имя>]");
+                    Console.Error.WriteLine("Использование: edge-cli start <deviceId|имя устройства> [--minutes N] [--actor <имя>]");
                     return 1;
+                }
+
+                int? minutes = null;
+                if (parsed.Get("minutes") is { } m)
+                {
+                    if (!int.TryParse(m, out var parsedMinutes) || parsedMinutes <= 0)
+                    {
+                        Console.Error.WriteLine("--minutes должно быть положительным целым числом.");
+                        return 1;
+                    }
+
+                    minutes = parsedMinutes;
                 }
 
                 var deviceId = await ResolveDeviceId(http, device);
@@ -54,7 +66,20 @@ try
                     return 3;
                 }
 
-                return await Print(http.PostAsJsonAsync("local/v1/sessions", new { deviceId, actor = parsed.Get("actor") }));
+                return await Print(http.PostAsJsonAsync("local/v1/sessions",
+                    new { deviceId, actor = parsed.Get("actor"), durationMinutes = minutes }));
+            }
+        case "extend":
+            {
+                var sessionId = parsed.Positional.ElementAtOrDefault(0);
+                if (sessionId is null || !int.TryParse(parsed.Positional.ElementAtOrDefault(1), out var minutes) || minutes <= 0)
+                {
+                    Console.Error.WriteLine("Использование: edge-cli extend <sessionId> <минуты> [--actor <имя>]");
+                    return 1;
+                }
+
+                return await Print(http.PostAsJsonAsync($"local/v1/sessions/{Uri.EscapeDataString(sessionId)}/extend",
+                    new { minutes, actor = parsed.Get("actor") }));
             }
         case "end":
             {
@@ -120,7 +145,10 @@ static void PrintUsage() => Console.WriteLine("""
       status                              состояние Edge, связь с Cloud, очередь outbox
       devices                             устройства и их статус
       sessions [--active]                 последние / активные сессии
-      start <deviceId|имя> [--actor X]    начать сессию локально (тариф из кэша)
+      start <deviceId|имя> [--minutes N] [--actor X]
+                                          начать сессию локально (тариф из кэша); --minutes — лимит
+                                          времени, по истечении Edge завершит сессию сам
+      extend <sessionId> <минуты>         продлить сессию с лимитом
       end <sessionId> [--actor X]         завершить сессию (идемпотентно)
 
     Опции:

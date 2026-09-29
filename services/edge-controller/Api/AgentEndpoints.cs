@@ -57,11 +57,15 @@ public static class AgentEndpoints
         }
 
         await store.RecordHeartbeatAsync(heartbeat, ct);
-        return Results.Ok(new HeartbeatAck { ServerTimeUtc = time.GetUtcNow() });
+        return Results.Ok(new HeartbeatAck { ServerTimeUtc = time.GetUtcNow(), State = store.GetAgentState(deviceId) });
     }
 
-    private static async Task<IResult> Commands(int? waitSeconds, HttpContext http, AgentAuth auth, EdgeStore store,
-        EdgeSignals signals, TimeProvider time, CancellationToken ct)
+    /// <summary>
+    /// Long-poll команд. Ответ приходит раньше срока, если есть команды или состояние сессии устройства
+    /// отличается от <paramref name="sessionStamp"/>, известного агенту (старт/продление/завершение).
+    /// </summary>
+    private static async Task<IResult> Commands(int? waitSeconds, string? sessionStamp, HttpContext http, AgentAuth auth,
+        EdgeStore store, EdgeSignals signals, TimeProvider time, CancellationToken ct)
     {
         var deviceId = auth.Authenticate(http);
         if (deviceId is null)
@@ -73,10 +77,12 @@ public static class AgentEndpoints
         while (true)
         {
             var commands = await store.TakeCommandsForDeviceAsync(deviceId, ct);
+            var state = store.GetAgentState(deviceId);
             var remaining = deadline - time.GetUtcNow();
-            if (commands.Count > 0 || remaining <= TimeSpan.Zero)
+            var stateChanged = sessionStamp is not null && state is not null && state.Stamp != sessionStamp;
+            if (commands.Count > 0 || stateChanged || remaining <= TimeSpan.Zero)
             {
-                return Results.Ok(new AgentCommandsResponse { Commands = commands });
+                return Results.Ok(new AgentCommandsResponse { Commands = commands, State = state });
             }
 
             await signals.WaitDeviceAsync(deviceId, remaining < TimeSpan.FromSeconds(2) ? remaining : TimeSpan.FromSeconds(2), ct);

@@ -64,5 +64,9 @@ export function SessionStateBadge({ state }: { state: SessionState }) {
         : state === "Failed"
           ? "bg-red-50 text-red-800 border-red-300"
           : "bg-amber-50 text-amber-900 border-amber-300";
-  return <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${cls}`}>{sessionStateLabel[state]}</span>;
+  return (
+    <span data-state={state} className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${cls}`}>
+      {sessionStateLabel[state]}
+    </span>
+  );
 }

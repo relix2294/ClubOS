@@ -106,7 +106,15 @@ public sealed record SessionView(
     long? TotalMinorUnits,
     string? FailureReason,
     string StartedBy,
-    string? EndedBy);
+    string? EndedBy,
+    int? DurationMinutes,
+    DateTimeOffset? PlannedEndAtUtc,
+    string? EndReason);
+
+/// <summary>Тело запроса старта; пустое тело — открытая сессия.</summary>
+public sealed record StartSessionRequestBody(int? DurationMinutes);
+
+public sealed record ExtendSessionRequest(int Minutes);
 
 public sealed record AuditEventView(
     string AuditId,

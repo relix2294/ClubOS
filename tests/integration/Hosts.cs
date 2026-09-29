@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using ClubOS.Agent.Core;
+using ClubOS.Agent.Core.PlayerShell;
 using ClubOS.EdgeController;
 using ClubOS.EdgeController.Api;
 using ClubOS.EdgeController.Cloud;
@@ -89,11 +90,13 @@ public sealed class AgentHost : IAsyncDisposable
             DataPath = dataPath,
             HeartbeatSeconds = 1,
             CommandPollSeconds = 2,
-            MaxBackoffSeconds = 1
+            MaxBackoffSeconds = 1,
+            Shell = new ShellOptions { Mode = ShellMode.Enforced }
         };
         Runtime = new AgentRuntime(options, identity, new EdgeClient(edge.CreateClient(), identity, TimeProvider.System),
             new BasicInventoryProvider(), Presenter,
             new CommandExecutor(Presenter, new ExecutedCommandStore(dataPath), TimeProvider.System, NullLogger<CommandExecutor>.Instance),
+            new PlayerShellController(options, Presenter, TimeProvider.System, NullLogger<PlayerShellController>.Instance),
             TimeProvider.System, NullLogger<AgentRuntime>.Instance);
         _run = Task.Run(() => Runtime.RunAsync(_cts.Token));
     }
@@ -122,6 +125,15 @@ public sealed class CountingPresenter : IUserPresenter
     public int Shown => _shown;
 
     public bool IsLocked { get; private set; }
+
+    /// <summary>Последнее состояние Player Shell, полученное агентом.</summary>
+    public ShellState? Shell { get; private set; }
+
+    public Task<PresentResult> UpdateShellAsync(ShellState state, CancellationToken ct)
+    {
+        Shell = state;
+        return Task.FromResult(PresentResult.Success);
+    }
 
     public Task<PresentResult> ShowMessageAsync(string commandId, string title, string message, CancellationToken ct)
     {

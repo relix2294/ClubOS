@@ -5,7 +5,9 @@ using Microsoft.Extensions.Options;
 
 namespace ClubOS.EdgeController.Api;
 
-public sealed record LocalStartSessionRequest(string DeviceId, string? Actor);
+public sealed record LocalStartSessionRequest(string DeviceId, string? Actor, int? DurationMinutes = null);
+
+public sealed record LocalExtendSessionRequest(int Minutes, string? Actor);
 
 public sealed record LocalEndSessionRequest(string? Actor);
 
@@ -34,6 +36,7 @@ public static class LocalEndpoints
             Results.Ok(active == true ? store.GetActiveSessions() : store.ListRecentSessions(50)));
         group.MapPost("/sessions", StartSession);
         group.MapPost("/sessions/{sessionId}/end", EndSession);
+        group.MapPost("/sessions/{sessionId}/extend", ExtendSession);
     }
 
     private static async ValueTask<object?> RequireLocalAdmin(EndpointFilterInvocationContext context,
@@ -73,7 +76,14 @@ public static class LocalEndpoints
 
     private static async Task<IResult> StartSession(LocalStartSessionRequest request, EdgeStore store, CancellationToken ct)
     {
-        var result = await store.StartLocalSessionAsync(request.DeviceId, Actor(request.Actor), ct);
+        var result = await store.StartLocalSessionAsync(request.DeviceId, Actor(request.Actor), request.DurationMinutes, ct);
+        return ToResult(result);
+    }
+
+    private static async Task<IResult> ExtendSession(string sessionId, LocalExtendSessionRequest request, EdgeStore store,
+        CancellationToken ct)
+    {
+        var result = await store.ExtendSessionAsync(sessionId, request.Minutes, Actor(request.Actor), ct);
         return ToResult(result);
     }
 
@@ -89,7 +99,7 @@ public static class LocalEndpoints
 
     private static IResult ToResult(SessionResult result) => result.Outcome switch
     {
-        SessionOutcome.Started or SessionOutcome.Ended => Results.Ok(new { outcome = result.Outcome.ToString(), result.Session }),
+        SessionOutcome.Started or SessionOutcome.Ended or SessionOutcome.Extended => Results.Ok(new { outcome = result.Outcome.ToString(), result.Session }),
         SessionOutcome.AlreadyStarted or SessionOutcome.AlreadyEnded => Results.Ok(new { outcome = result.Outcome.ToString(), result.Session }),
         SessionOutcome.NotFound => Results.Problem(statusCode: 404, title: result.Error),
         _ => Results.Problem(statusCode: 409, title: result.Error)

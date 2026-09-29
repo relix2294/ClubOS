@@ -42,7 +42,8 @@ public static class Mapping
 
     public static SessionView ToView(this Session s) => new(
         s.Id, s.DeviceId, s.State, s.Origin, s.RequestedAtUtc, s.StartedAtUtc, s.EndRequestedAtUtc, s.EndedAtUtc,
-        s.PricePerHourMinorUnits, s.Currency, s.Rounding, s.TotalMinorUnits, s.FailureReason, s.StartedBy, s.EndedBy);
+        s.PricePerHourMinorUnits, s.Currency, s.Rounding, s.TotalMinorUnits, s.FailureReason, s.StartedBy, s.EndedBy,
+        s.DurationMinutes, s.PlannedEndAtUtc, s.EndReason);
 
     public static EdgeView ToView(this Edge e, DateTimeOffset now) => new(
         e.Id, e.Name, e.LastSeenAtUtc is not null && now - e.LastSeenAtUtc <= EdgeOnlineWindow, e.LastSeenAtUtc,

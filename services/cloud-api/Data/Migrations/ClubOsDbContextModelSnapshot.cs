@@ -468,6 +468,13 @@ namespace ClubOS.CloudApi.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int?>("DurationMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("EndReason")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<DateTimeOffset?>("EndRequestedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -487,6 +494,9 @@ namespace ClubOS.CloudApi.Data.Migrations
                     b.Property<string>("Origin")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("PlannedEndAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<long>("PricePerHourMinorUnits")
                         .HasColumnType("bigint");

@@ -3,13 +3,23 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import type { AuditEventView, CommandView, DeviceView, SessionView, ShowMessagePayload, LockTestModePayload } from "@clubos/contracts";
+import {
+  SessionLimits,
+  type AuditEventView,
+  type CommandView,
+  type DeviceView,
+  type ExtendSessionRequest,
+  type LockTestModePayload,
+  type SessionView,
+  type ShowMessagePayload,
+  type StartSessionRequest,
+} from "@clubos/contracts";
 import { useShell } from "@/components/AppShell";
 import { useSessionClock } from "@/components/SessionTimer";
 import { CommandStateBadge, DeviceStatusBadge, SessionStateBadge } from "@/components/StatusBadge";
 import { Button, Card, EmptyState, ErrorState, Field, Loading, SimulatedBadge, inputClass } from "@/components/ui";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
-import { formatDateTime, formatMoney } from "@/lib/format";
+import { formatDateTime, formatLimit, formatMoney, formatTime } from "@/lib/format";
 import { actionLabel, t } from "@/lib/i18n";
 import { usePolling } from "@/lib/usePolling";
 
@@ -82,14 +92,29 @@ function InventoryCard({ device, timezone }: { device: DeviceView; timezone: str
   );
 }
 
+const LIMIT_PRESETS = [30, 60, 120, 180];
+
+/** Итоговый лимит с продлениями: от старта до планового окончания; до старта — запрошенный. */
+function limitMinutes(s: SessionView): number | null {
+  if (s.plannedEndAtUtc && s.startedAtUtc) return Math.round((Date.parse(s.plannedEndAtUtc) - Date.parse(s.startedAtUtc)) / 60_000);
+  return s.durationMinutes;
+}
+const EXTEND_PRESETS = [15, 30, 60];
+
 function SessionCard({ device, onChange }: { device: DeviceView; onChange: () => void }) {
   const { location, can } = useShell();
   const history = usePolling((s) => apiGet<SessionView[]>(`devices/${device.deviceId}/sessions`, s), 5000, [device.deviceId]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [limit, setLimit] = useState<string>("60");
+  const [custom, setCustom] = useState("45");
+  const [extendedFrom, setExtendedFrom] = useState<string | null>(null);
   const session = device.activeSession;
   const clock = useSessionClock(session);
   const zone = location.zones.find((z) => z.zoneId === device.zoneId);
+  const limited = session?.durationMinutes != null;
+  // Продление подтверждено, когда Edge сдвинул плановое окончание.
+  const extendPending = extendedFrom !== null && session?.plannedEndAtUtc === extendedFrom;
 
   const act = async (call: () => Promise<unknown>) => {
     setBusy(true);
@@ -98,11 +123,30 @@ function SessionCard({ device, onChange }: { device: DeviceView; onChange: () =>
       await call();
       onChange();
       history.refresh();
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     } finally {
       setBusy(false);
     }
+  };
+
+  const start = () => {
+    const minutes = limit === "open" ? null : limit === "custom" ? Number(custom) : Number(limit);
+    if (minutes !== null && (!Number.isInteger(minutes) || minutes < SessionLimits.minDurationMinutes || minutes > SessionLimits.maxDurationMinutes)) {
+      setError(`Лимит — от ${SessionLimits.minDurationMinutes} до ${SessionLimits.maxDurationMinutes} минут.`);
+      return;
+    }
+    const body: StartSessionRequest = { durationMinutes: minutes };
+    void act(() => apiPost(`devices/${device.deviceId}/sessions`, body));
+  };
+
+  const extend = async (minutes: number) => {
+    if (!session) return;
+    const body: ExtendSessionRequest = { minutes };
+    const before = session.plannedEndAtUtc;
+    if (await act(() => apiPost(`sessions/${session.sessionId}/extend`, body))) setExtendedFrom(before);
   };
 
   return (
@@ -118,11 +162,19 @@ function SessionCard({ device, onChange }: { device: DeviceView; onChange: () =>
         {!session && <p className="text-sm text-slate-500">{t.device.noSession}</p>}
         {session?.state === "Created" && <p className="text-sm text-amber-700">{t.device.waitingEdge}</p>}
         {session?.state === "Active" && clock && (
-          <div className="grid grid-cols-2 gap-4 rounded-lg bg-blue-50 p-4" data-testid="active-session">
+          <div className={`grid gap-4 rounded-lg p-4 ${clock.soon ? "bg-amber-50" : "bg-blue-50"} ${limited ? "grid-cols-3" : "grid-cols-2"}`} data-testid="active-session">
             <div>
               <div className="text-xs text-blue-700">{t.device.duration}</div>
               <div className="font-mono text-2xl font-semibold text-blue-900">{clock.duration}</div>
             </div>
+            {limited && (
+              <div data-testid="session-remaining">
+                <div className="text-xs text-blue-700">
+                  {t.device.remaining} · {t.device.plannedEnd} {formatTime(session.plannedEndAtUtc, location.timezone)}
+                </div>
+                <div className={`font-mono text-2xl font-semibold ${clock.soon ? "text-amber-700" : "text-blue-900"}`}>{clock.remaining ?? "—"}</div>
+              </div>
+            )}
             <div>
               <div className="text-xs text-blue-700">
                 {t.device.cost} <span className="text-[10px]">({t.device.costPreview})</span>
@@ -132,6 +184,7 @@ function SessionCard({ device, onChange }: { device: DeviceView; onChange: () =>
           </div>
         )}
         {session?.endRequestedAtUtc && <p className="text-sm text-amber-700">{t.device.endRequested}</p>}
+        {extendPending && <p className="text-sm text-amber-700">{t.device.extendPending}</p>}
 
         {error && (
           <p role="alert" className="text-sm text-red-700">
@@ -139,13 +192,51 @@ function SessionCard({ device, onChange }: { device: DeviceView; onChange: () =>
           </p>
         )}
 
-        <div className={can("sessions.manage") ? "flex gap-3" : "hidden"}>
-          {!session && (
-            <Button disabled={busy || device.status === "Offline"} onClick={() => act(() => apiPost(`devices/${device.deviceId}/sessions`))}>
-              {t.device.startSession}
-            </Button>
-          )}
-          {session && (
+        {can("sessions.manage") && !session && (
+          <div className="flex flex-col gap-3" aria-label={t.device.startSession} role="group">
+            <Field label={t.device.limit}>
+              <select className={inputClass} value={limit} onChange={(e) => setLimit(e.target.value)}>
+                {LIMIT_PRESETS.map((m) => (
+                  <option key={m} value={String(m)}>
+                    {formatLimit(m)}
+                  </option>
+                ))}
+                <option value="custom">{t.device.limitCustom}</option>
+                <option value="open">{t.device.limitOpen}</option>
+              </select>
+            </Field>
+            {limit === "custom" && (
+              <Field label={t.device.limitMinutes}>
+                <input
+                  className={inputClass}
+                  type="number"
+                  min={SessionLimits.minDurationMinutes}
+                  max={SessionLimits.maxDurationMinutes}
+                  value={custom}
+                  onChange={(e) => setCustom(e.target.value)}
+                />
+              </Field>
+            )}
+            <p className="text-xs text-slate-500">{t.device.limitHint}</p>
+            <div>
+              <Button disabled={busy || device.status === "Offline"} onClick={start}>
+                {t.device.startSession}
+              </Button>
+            </div>
+          </div>
+        )}
+        {can("sessions.manage") && session && (
+          <div className="flex flex-wrap items-center gap-3">
+            {limited && session.state === "Active" && !session.endRequestedAtUtc && (
+              <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t.device.extend}>
+                <span className="text-sm text-slate-600">{t.device.extend}:</span>
+                {EXTEND_PRESETS.map((m) => (
+                  <Button key={m} variant="secondary" disabled={busy || extendPending} onClick={() => extend(m)}>
+                    +{formatLimit(m)}
+                  </Button>
+                ))}
+              </div>
+            )}
             <Button
               variant="danger"
               disabled={busy || !!session.endRequestedAtUtc}
@@ -153,8 +244,8 @@ function SessionCard({ device, onChange }: { device: DeviceView; onChange: () =>
             >
               {t.device.endSession}
             </Button>
-          )}
-        </div>
+          </div>
+        )}
 
         <div>
           <h3 className="mb-2 text-sm font-semibold text-slate-700">{t.device.history}</h3>
@@ -164,7 +255,15 @@ function SessionCard({ device, onChange }: { device: DeviceView; onChange: () =>
               <li key={s.sessionId} className="flex flex-wrap items-center gap-3 py-2">
                 <SessionStateBadge state={s.state} />
                 <span className="text-slate-600">{formatDateTime(s.startedAtUtc ?? s.requestedAtUtc, location.timezone)}</span>
+                {limitMinutes(s) !== null && (
+                  <span className="text-xs text-slate-500">
+                    {t.device.limitLabel} {formatLimit(limitMinutes(s)!)}
+                  </span>
+                )}
                 {s.totalMinorUnits !== null && <span className="font-semibold">{formatMoney(s.totalMinorUnits, s.currency)}</span>}
+                {s.endReason && (
+                  <span className="text-xs text-slate-500">{s.endReason === "timeLimit" ? t.device.endReasonTimeLimit : t.device.endReasonStaff}</span>
+                )}
                 {s.origin === "edge" && <span className="rounded bg-slate-100 px-1.5 text-xs text-slate-600">Edge offline</span>}
                 {s.failureReason && <span className="text-xs text-red-700">{s.failureReason}</span>}
               </li>

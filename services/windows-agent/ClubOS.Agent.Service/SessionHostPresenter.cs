@@ -7,6 +7,7 @@ using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using ClubOS.Agent.Core;
+using ClubOS.Agent.Core.PlayerShell;
 
 namespace ClubOS.Agent.Service;
 
@@ -29,8 +30,30 @@ public sealed partial class SessionHostPresenter(ILogger<SessionHostPresenter> l
     private StreamWriter? _writer;
     private volatile bool _locked;
     private string? _lockReason;
+    private ShellState? _shell;
+    private IShellInput? _shellInput;
+    private DateTimeOffset? _lastConnectedUtc;
 
     public bool IsLocked => _locked;
+
+    /// <summary>Подключён ли сейчас AgentSessionHost (для перезапуска его службой).</summary>
+    public bool IsConnected => _writer is not null;
+
+    public DateTimeOffset? LastConnectedUtc => _lastConnectedUtc;
+
+    public void AttachShellInput(IShellInput input) => _shellInput = input;
+
+    /// <summary>Хранит последнее состояние: SessionHost после перезапуска/перелогина получает его сразу.</summary>
+    public Task<PresentResult> UpdateShellAsync(ShellState state, CancellationToken ct)
+    {
+        _shell = state;
+        return SendAsync(new HostRequest
+        {
+            Id = $"shell-{Guid.NewGuid():N}",
+            Type = SessionHostProtocol.TypeShell,
+            Shell = state
+        }, ct);
+    }
 
     public Task<PresentResult> ShowMessageAsync(string commandId, string title, string message, CancellationToken ct) =>
         SendAsync(new HostRequest
@@ -77,6 +100,18 @@ public sealed partial class SessionHostPresenter(ILogger<SessionHostPresenter> l
                 logger.LogInformation("AgentSessionHost подключён");
                 using var reader = new StreamReader(pipe, Encoding.UTF8);
                 _writer = new StreamWriter(pipe, new UTF8Encoding(false)) { AutoFlush = true };
+                _lastConnectedUtc = DateTimeOffset.UtcNow;
+
+                // Сначала экран Player Shell (он под overlay блокировки), затем overlay.
+                if (_shell is { } shell)
+                {
+                    _ = SendAsync(new HostRequest
+                    {
+                        Id = $"shell-{Guid.NewGuid():N}",
+                        Type = SessionHostProtocol.TypeShell,
+                        Shell = shell
+                    }, stoppingToken);
+                }
 
                 // После переподключения (перелогин пользователя) восстанавливаем overlay блокировки.
                 if (_locked)
@@ -92,7 +127,13 @@ public sealed partial class SessionHostPresenter(ILogger<SessionHostPresenter> l
 
                 while (await reader.ReadLineAsync(stoppingToken) is { } line)
                 {
-                    HandleIncoming(line);
+                    if (line.Length > SessionHostProtocol.MaxLineLength)
+                    {
+                        logger.LogWarning("Слишком длинное сообщение от SessionHost — соединение закрыто");
+                        break;
+                    }
+
+                    HandleIncoming(line, stoppingToken);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -111,7 +152,7 @@ public sealed partial class SessionHostPresenter(ILogger<SessionHostPresenter> l
         }
     }
 
-    private void HandleIncoming(string line)
+    private void HandleIncoming(string line, CancellationToken ct)
     {
         HostMessage? message;
         try
@@ -136,12 +177,62 @@ public sealed partial class SessionHostPresenter(ILogger<SessionHostPresenter> l
             return;
         }
 
+        if (message.Type == SessionHostProtocol.TypeMaintenanceRequest && message.Id is { Length: > 0 and <= 64 } requestId)
+        {
+            _ = AnswerMaintenanceAsync(requestId, message.Pin ?? string.Empty, ct);
+            return;
+        }
+
+        if (message.Type == SessionHostProtocol.TypeMaintenanceEnd)
+        {
+            _shellInput?.EndMaintenance();
+            return;
+        }
+
         lock (_pendingGate)
         {
             if (message.Id is not null && _pending.Remove(message.Id, out var tcs))
             {
                 tcs.TrySetResult(message);
             }
+        }
+    }
+
+    /// <summary>PIN проверяет служба (SYSTEM): хэш PIN недоступен процессу пользователя.</summary>
+    private async Task AnswerMaintenanceAsync(string requestId, string pin, CancellationToken ct)
+    {
+        var result = _shellInput is null
+            ? PresentResult.Fail("Player Shell не запущен.")
+            : await _shellInput.RequestMaintenanceAsync(pin, ct);
+        await WriteAsync(new HostRequest
+        {
+            Id = requestId,
+            Type = SessionHostProtocol.TypeMaintenanceResult,
+            Ok = result.Ok,
+            Error = result.Error
+        }, ct);
+    }
+
+    private async Task WriteAsync(HostRequest request, CancellationToken ct)
+    {
+        var writer = _writer;
+        if (writer is null)
+        {
+            return;
+        }
+
+        await _sendLock.WaitAsync(ct);
+        try
+        {
+            await writer.WriteLineAsync(JsonSerializer.Serialize(request).AsMemory(), ct);
+        }
+        catch (IOException ex)
+        {
+            logger.LogInformation("Ответ SessionHost не доставлен: {Error}", ex.Message);
+        }
+        finally
+        {
+            _sendLock.Release();
         }
     }
 

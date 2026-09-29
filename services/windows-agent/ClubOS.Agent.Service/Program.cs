@@ -1,10 +1,17 @@
 using ClubOS.Agent.Core;
+using ClubOS.Agent.Core.PlayerShell;
 using ClubOS.Agent.Service;
 using Microsoft.Extensions.Logging.EventLog;
 using Microsoft.Extensions.Options;
 
 // ClubOS Windows Agent: .NET Windows Service (Session 0) + console mode для разработки.
 // UI не рисуется из службы — только через AgentSessionHost (Named Pipe), ТЗ §11.1.
+
+// Служебная команда: хэш PIN техника для Agent:Shell:TechnicianPinHash (install-agent.ps1 -TechnicianPin).
+if (args is ["hash-pin", ..])
+{
+    return HashPinCommand.Run();
+}
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -39,6 +46,7 @@ if (OperatingSystem.IsWindows())
     builder.Services.AddSingleton<SessionHostPresenter>();
     builder.Services.AddSingleton<IUserPresenter>(sp => sp.GetRequiredService<SessionHostPresenter>());
     builder.Services.AddHostedService(sp => sp.GetRequiredService<SessionHostPresenter>());
+    builder.Services.AddHostedService<SessionHostLauncher>();
 }
 else
 {
@@ -58,6 +66,7 @@ builder.Services.AddHttpClient<EdgeClient>((sp, http) =>
     http.Timeout = TimeSpan.FromSeconds(40);
 });
 builder.Services.AddSingleton<CommandExecutor>();
+builder.Services.AddSingleton<PlayerShellController>();
 builder.Services.AddSingleton(sp => ActivatorUtilities.CreateInstance<AgentRuntime>(sp,
     sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(EdgeClient)) is var http
         ? new EdgeClient(http, sp.GetRequiredService<AgentIdentityStore>(), sp.GetRequiredService<TimeProvider>())
@@ -66,3 +75,4 @@ builder.Services.AddHostedService<AgentWorker>();
 
 var host = builder.Build();
 host.Run();
+return 0;

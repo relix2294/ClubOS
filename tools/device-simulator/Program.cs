@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using ClubOS.Agent.Core;
+using ClubOS.Agent.Core.PlayerShell;
 using ClubOS.Contracts;
 using Microsoft.Extensions.Logging;
 
@@ -55,14 +56,16 @@ for (var i = 1; i <= opts.Count; i++)
         EnrollmentToken = enrollmentToken,
         DataPath = dataPath,
         HeartbeatSeconds = 10,
-        CommandPollSeconds = 20
+        CommandPollSeconds = 20,
+        Shell = new ShellOptions { Mode = opts.ShellMode }
     };
     var presenter = new ConsolePresenter(loggerFactory.CreateLogger<ConsolePresenter>(), $"SIMULATED {name}");
+    var shell = new PlayerShellController(agentOptions, presenter, time, loggerFactory.CreateLogger<PlayerShellController>());
     var runtime = new AgentRuntime(agentOptions, identity, new EdgeClient(edgeHttp, identity, time),
         new SimulatedInventory(name, i), presenter,
         new CommandExecutor(presenter, new ExecutedCommandStore(dataPath), time, loggerFactory.CreateLogger<CommandExecutor>()),
-        time, loggerFactory.CreateLogger<AgentRuntime>());
-    devices.Add(new SimDevice(i, name, runtime));
+        shell, time, loggerFactory.CreateLogger<AgentRuntime>());
+    devices.Add(new SimDevice(i, name, runtime, presenter));
 }
 
 var tasks = devices.Select(d => Task.Run(() => d.Runtime.RunAsync(cts.Token))).ToList();
@@ -81,7 +84,8 @@ if (!Console.IsInputRedirected)
                 case "list":
                     foreach (var d in devices)
                     {
-                        Console.WriteLine($"  {d.Index}. {d.Name} {d.Runtime.DeviceId} {(d.Runtime.Paused ? "OFFLINE (симуляция)" : "online")}");
+                        Console.WriteLine($"  {d.Index}. {d.Name} {d.Runtime.DeviceId} " +
+                                          $"{(d.Runtime.Paused ? "OFFLINE (симуляция)" : "online")} · экран: {ShellSummary(d.Presenter.Shell)}");
                     }
 
                     break;
@@ -156,7 +160,23 @@ static async Task<string> CreateEnrollmentTokenAsync(SimOptions o, string access
     return (await response.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("enrollmentToken").GetString()!;
 }
 
-internal sealed record SimDevice(int Index, string Name, AgentRuntime Runtime);
+static string ShellSummary(ShellState? state)
+{
+    if (state is null)
+    {
+        return "—";
+    }
+
+    var now = ShellClock.EdgeNow(state, DateTimeOffset.UtcNow);
+    return state.View switch
+    {
+        ShellView.Session when state.Session is { } s => $"сессия, {ShellText.Hud(s, now).Time}, {ShellText.Hud(s, now).Cost}",
+        ShellView.Ended when state.Ended is { } e => $"завершена ({ShellText.EndedSummary(e)})",
+        _ => state.View.ToString()
+    };
+}
+
+internal sealed record SimDevice(int Index, string Name, AgentRuntime Runtime, ConsolePresenter Presenter);
 
 internal sealed class SimulatedInventory(string name, int index) : IInventoryProvider
 {
@@ -172,7 +192,7 @@ internal sealed class SimulatedInventory(string name, int index) : IInventoryPro
 }
 
 internal sealed record SimOptions(string EdgeUrl, string CloudUrl, string Email, string? Password, int Count, string StateDir,
-    string? LocationId)
+    string? LocationId, ShellMode ShellMode)
 {
     public static SimOptions Parse(string[] args)
     {
@@ -189,6 +209,10 @@ internal sealed record SimOptions(string EdgeUrl, string CloudUrl, string Email,
             Get("password") ?? Environment.GetEnvironmentVariable("CLUBOS_SIM_PASSWORD"),
             int.TryParse(Get("count"), out var c) ? Math.Clamp(c, 1, 50) : 5,
             Get("state-dir") ?? Environment.GetEnvironmentVariable("CLUBOS_SIM_STATE") ?? "sim-data",
-            Get("location") ?? Environment.GetEnvironmentVariable("CLUBOS_SIM_LOCATION"));
+            Get("location") ?? Environment.GetEnvironmentVariable("CLUBOS_SIM_LOCATION"),
+            // Player Shell симулированных ПК: состояние экрана видно в логе и в команде list.
+            Enum.TryParse<ShellMode>(Get("shell") ?? Environment.GetEnvironmentVariable("CLUBOS_SIM_SHELL"), true, out var mode)
+                ? mode
+                : ShellMode.Enforced);
     }
 }

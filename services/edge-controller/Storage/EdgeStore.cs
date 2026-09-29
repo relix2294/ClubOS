@@ -26,7 +26,9 @@ public sealed record EdgeSession(
     long? TotalMinorUnits,
     string StartedBy,
     string? EndedBy,
-    string CorrelationId);
+    string CorrelationId,
+    DateTimeOffset? PlannedEndAtUtc = null,
+    string? EndReason = null);
 
 public sealed record OutboxEvent(
     long Sequence,
@@ -46,13 +48,14 @@ public enum SessionOutcome
     Ended,
     AlreadyEnded,
     Rejected,
-    NotFound
+    NotFound,
+    Extended
 }
 
 public sealed record SessionResult(SessionOutcome Outcome, EdgeSession? Session, string? Error = null)
 {
     public bool IsSuccess => Outcome is SessionOutcome.Started or SessionOutcome.AlreadyStarted or SessionOutcome.Ended
-        or SessionOutcome.AlreadyEnded;
+        or SessionOutcome.AlreadyEnded or SessionOutcome.Extended;
 }
 
 /// <summary>
@@ -142,7 +145,8 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
         {
             var wasOnline = Convert.ToInt64(c.Scalar(tx, "SELECT online FROM devices WHERE device_id = $id",
                 ("$id", heartbeat.DeviceId)) ?? 0L) == 1;
-            var status = heartbeat.Status is DeviceStatus.Locked ? DeviceStatus.Locked : DeviceStatus.Idle;
+            // Агент сообщает только своё состояние (Locked/Maintenance/Idle); Active выводит Edge из сессий.
+            var status = heartbeat.Status is DeviceStatus.Locked or DeviceStatus.Maintenance ? heartbeat.Status : DeviceStatus.Idle;
             c.Exec(tx, """
                 UPDATE devices SET online = 1, agent_status = $status, last_heartbeat_utc = $now,
                     clock_skew_ms = $skew, inventory_json = COALESCE($inv, inventory_json)
@@ -218,6 +222,7 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
     public async Task<bool> ApplyCloudCommandAsync(EdgeCommand command, CancellationToken ct = default)
     {
         var now = time.GetUtcNow();
+        string? affectedDevice = null;
         var applied = await database.WriteAsync((c, tx) =>
         {
             var inserted = c.Exec(tx, "INSERT OR IGNORE INTO inbox (id, kind, received_at_utc) VALUES ($id, $kind, $now)",
@@ -233,11 +238,17 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
                     StoreDeviceCommand(c, tx, env, now);
                     break;
                 case EdgeCommandKind.StartSession when command.StartSession is { } start:
+                    affectedDevice = start.DeviceId;
                     StartSessionCore(c, tx, start.SessionId, start.DeviceId, start.PriceSnapshot, start.Actor,
-                        start.CorrelationId, "cloud", now, emitRejection: true);
+                        start.CorrelationId, "cloud", now, emitRejection: true, start.DurationMinutes);
                     break;
                 case EdgeCommandKind.EndSession when command.EndSession is { } end:
-                    EndSessionCore(c, tx, end.SessionId, end.Actor, now);
+                    affectedDevice = EndSessionCore(c, tx, end.SessionId, end.Actor, now, SessionEndReasons.Staff)
+                        .Session?.DeviceId;
+                    break;
+                case EdgeCommandKind.ExtendSession when command.ExtendSession is { } extend:
+                    affectedDevice = ExtendSessionCore(c, tx, extend.SessionId, extend.Minutes, extend.Actor, now)
+                        .Session?.DeviceId;
                     break;
             }
 
@@ -245,6 +256,11 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
         }, ct);
 
         signals.NotifyOutbox();
+        if (affectedDevice is not null)
+        {
+            signals.NotifyDevice(affectedDevice); // Player Shell узнаёт о старте/продлении/завершении сразу
+        }
+
         if (command.DeviceCommand is { } e)
         {
             foreach (var deviceId in e.TargetDeviceIds)
@@ -424,7 +440,8 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
     // ---------- Сессии ----------
 
     /// <summary>Локальный старт (edge-cli / offline). Тариф — из кэша конфигурации зоны.</summary>
-    public async Task<SessionResult> StartLocalSessionAsync(string deviceId, string actor, CancellationToken ct = default)
+    public async Task<SessionResult> StartLocalSessionAsync(string deviceId, string actor, int? durationMinutes = null,
+        CancellationToken ct = default)
     {
         var device = GetDevice(deviceId);
         if (device is null)
@@ -442,17 +459,122 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
         var now = time.GetUtcNow();
         var sessionId = $"ses_{Guid.CreateVersion7():N}";
         var result = await database.WriteAsync((c, tx) => StartSessionCore(c, tx, sessionId, deviceId, price, actor,
-            $"cor_{Guid.CreateVersion7():N}", "edge", now, emitRejection: false), ct);
-        signals.NotifyOutbox();
+            $"cor_{Guid.CreateVersion7():N}", "edge", now, emitRejection: false, durationMinutes), ct);
+        NotifySessionChanged(result);
         return result;
     }
 
     public async Task<SessionResult> EndSessionAsync(string sessionId, string actor, CancellationToken ct = default)
     {
         var now = time.GetUtcNow();
-        var result = await database.WriteAsync((c, tx) => EndSessionCore(c, tx, sessionId, actor, now), ct);
-        signals.NotifyOutbox();
+        var result = await database.WriteAsync((c, tx) => EndSessionCore(c, tx, sessionId, actor, now,
+            SessionEndReasons.Staff), ct);
+        NotifySessionChanged(result);
         return result;
+    }
+
+    /// <summary>Локальное продление (edge-cli / offline).</summary>
+    public async Task<SessionResult> ExtendSessionAsync(string sessionId, int minutes, string actor,
+        CancellationToken ct = default)
+    {
+        var now = time.GetUtcNow();
+        var result = await database.WriteAsync((c, tx) => ExtendSessionCore(c, tx, sessionId, minutes, actor, now), ct);
+        NotifySessionChanged(result);
+        return result;
+    }
+
+    /// <summary>
+    /// Таймер Edge: завершает сессии, у которых истёк лимит. Время окончания = плановое окончание,
+    /// а не момент срабатывания таймера: если Edge был выключен, клиент не платит за лишнее время,
+    /// а итог детерминирован (ровно оплаченный пакет).
+    /// </summary>
+    public async Task<IReadOnlyList<EdgeSession>> EndExpiredSessionsAsync(CancellationToken ct = default)
+    {
+        var now = time.GetUtcNow();
+        const string dueSql =
+            "SELECT session_id FROM sessions WHERE state = 'Active' AND planned_end_at_utc IS NOT NULL AND planned_end_at_utc <= $now";
+        if (database.Read(c => c.Scalar(null, dueSql + " LIMIT 1", ("$now", now))) is null)
+        {
+            return [];
+        }
+
+        var ended = await database.WriteAsync((c, tx) =>
+        {
+            var ids = c.Query(tx, dueSql, r => r.S("session_id"), ("$now", now));
+            return ids.Select(id => EndSessionCore(c, tx, id, SessionEndReasons.TimerActor, now, SessionEndReasons.TimeLimit))
+                .Where(r => r.Outcome == SessionOutcome.Ended)
+                .Select(r => r.Session!)
+                .ToList();
+        }, ct);
+
+        signals.NotifyOutbox();
+        foreach (var session in ended)
+        {
+            signals.NotifyDevice(session.DeviceId);
+        }
+
+        return ended;
+    }
+
+    /// <summary>Сколько после окончания агент показывает итог последней сессии.</summary>
+    public static readonly TimeSpan LastEndedVisibleFor = TimeSpan.FromMinutes(10);
+
+    /// <summary>Состояние устройства для агента (Player Shell).</summary>
+    public AgentDeviceState? GetAgentState(string deviceId)
+    {
+        var device = GetDevice(deviceId);
+        if (device is null)
+        {
+            return null;
+        }
+
+        var now = time.GetUtcNow();
+        var active = database.Read(c => c.Query(null,
+            "SELECT * FROM sessions WHERE device_id = $d AND state = 'Active' LIMIT 1", MapSession, ("$d", deviceId))
+            .FirstOrDefault());
+        var lastEnded = active is not null
+            ? null
+            : database.Read(c => c.Query(null, """
+                SELECT * FROM sessions WHERE device_id = $d AND state = 'Ended' AND ended_at_utc >= $since
+                ORDER BY ended_at_utc DESC LIMIT 1
+                """, MapSession, ("$d", deviceId), ("$since", now - LastEndedVisibleFor)).FirstOrDefault());
+
+        return new AgentDeviceState
+        {
+            ServerTimeUtc = now,
+            Stamp = AgentDeviceState.StampFor(active?.SessionId, active?.PlannedEndAtUtc),
+            DeviceName = device.DisplayName,
+            LocationName = GetKv("location_name"),
+            Session = active is null
+                ? null
+                : new AgentSessionInfo
+                {
+                    SessionId = active.SessionId,
+                    StartedAtUtc = active.StartedAtUtc,
+                    PlannedEndAtUtc = active.PlannedEndAtUtc,
+                    PriceSnapshot = active.PriceSnapshot
+                },
+            LastEnded = lastEnded is { EndedAtUtc: { } endedAt, TotalMinorUnits: { } total }
+                ? new AgentEndedSessionInfo
+                {
+                    SessionId = lastEnded.SessionId,
+                    StartedAtUtc = lastEnded.StartedAtUtc,
+                    EndedAtUtc = endedAt,
+                    TotalMinorUnits = total,
+                    Currency = lastEnded.PriceSnapshot.Currency,
+                    Reason = lastEnded.EndReason
+                }
+                : null
+        };
+    }
+
+    private void NotifySessionChanged(SessionResult result)
+    {
+        signals.NotifyOutbox();
+        if (result.Session is { } session)
+        {
+            signals.NotifyDevice(session.DeviceId);
+        }
     }
 
     public EdgeSession? GetSession(string sessionId) =>
@@ -467,7 +589,8 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
             ("$n", limit)));
 
     private SessionResult StartSessionCore(SqliteConnection c, SqliteTransaction tx, string sessionId, string deviceId,
-        PriceSnapshot price, string actor, string correlationId, string origin, DateTimeOffset now, bool emitRejection)
+        PriceSnapshot price, string actor, string correlationId, string origin, DateTimeOffset now, bool emitRejection,
+        int? durationMinutes)
     {
         var existing = c.Query(tx, "SELECT * FROM sessions WHERE session_id = $id", MapSession, ("$id", sessionId))
             .FirstOrDefault();
@@ -485,6 +608,10 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
         {
             rejection = "На устройстве уже есть активная сессия.";
         }
+        else if (durationMinutes is < SessionLimits.MinDurationMinutes or > SessionLimits.MaxDurationMinutes)
+        {
+            rejection = $"Лимит времени должен быть от {SessionLimits.MinDurationMinutes} до {SessionLimits.MaxDurationMinutes} минут.";
+        }
 
         if (rejection is not null)
         {
@@ -498,13 +625,14 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
             return new SessionResult(SessionOutcome.Rejected, null, rejection);
         }
 
+        DateTimeOffset? plannedEnd = durationMinutes is { } minutes ? now.AddMinutes(minutes) : null;
         c.Exec(tx, """
             INSERT INTO sessions (session_id, device_id, state, origin, started_at_utc, price_per_hour_minor_units,
-                currency, rounding, rule_version, started_by, correlation_id)
-            VALUES ($id, $d, 'Active', $origin, $now, $price, $cur, $round, $rule, $actor, $cor)
+                currency, rounding, rule_version, started_by, correlation_id, planned_end_at_utc)
+            VALUES ($id, $d, 'Active', $origin, $now, $price, $cur, $round, $rule, $actor, $cor, $planned)
             """, ("$id", sessionId), ("$d", deviceId), ("$origin", origin), ("$now", now),
             ("$price", price.PricePerHourMinorUnits), ("$cur", price.Currency), ("$round", price.Rounding),
-            ("$rule", price.RuleVersion), ("$actor", actor), ("$cor", correlationId));
+            ("$rule", price.RuleVersion), ("$actor", actor), ("$cor", correlationId), ("$planned", plannedEnd));
 
         AppendEvent(c, tx, EventTypes.SessionStarted, sessionId, new SessionStartedPayload
         {
@@ -513,7 +641,8 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
             StartedAtUtc = now,
             PriceSnapshot = price,
             Actor = actor,
-            Origin = origin
+            Origin = origin,
+            PlannedEndAtUtc = plannedEnd
         }, correlationId);
 
         return new SessionResult(SessionOutcome.Started,
@@ -522,7 +651,7 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
 
     /// <summary>Идемпотентно: повторное завершение возвращает тот же итог без второго события (ТЗ §5.1).</summary>
     private SessionResult EndSessionCore(SqliteConnection c, SqliteTransaction tx, string sessionId, string actor,
-        DateTimeOffset now)
+        DateTimeOffset now, string reason)
     {
         var session = c.Query(tx, "SELECT * FROM sessions WHERE session_id = $id", MapSession, ("$id", sessionId))
             .FirstOrDefault();
@@ -536,26 +665,92 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
             return new SessionResult(SessionOutcome.AlreadyEnded, session);
         }
 
-        var total = BillingCalculator.CalculateMinorUnits(session.PriceSnapshot, now - session.StartedAtUtc);
+        // Сессия с лимитом не длится дольше оплаченного: если завершение пришло позже планового
+        // окончания (Edge был выключен, команда шла долго), время окончания = плановое окончание.
+        var endedAt = session.PlannedEndAtUtc is { } planned && planned < now ? planned : now;
+        if (endedAt < session.StartedAtUtc)
+        {
+            endedAt = session.StartedAtUtc;
+        }
+
+        var total = BillingCalculator.CalculateMinorUnits(session.PriceSnapshot, endedAt - session.StartedAtUtc);
         c.Exec(tx, """
-            UPDATE sessions SET state = 'Ended', ended_at_utc = $now, total_minor_units = $total, ended_by = $actor
+            UPDATE sessions SET state = 'Ended', ended_at_utc = $ended, total_minor_units = $total, ended_by = $actor,
+                end_reason = $reason
             WHERE session_id = $id AND state = 'Active'
-            """, ("$now", now), ("$total", total), ("$actor", actor), ("$id", sessionId));
+            """, ("$ended", endedAt), ("$total", total), ("$actor", actor), ("$reason", reason), ("$id", sessionId));
 
         AppendEvent(c, tx, EventTypes.SessionEnded, sessionId, new SessionEndedPayload
         {
             SessionId = sessionId,
             DeviceId = session.DeviceId,
             StartedAtUtc = session.StartedAtUtc,
-            EndedAtUtc = now,
+            EndedAtUtc = endedAt,
             PriceSnapshot = session.PriceSnapshot,
             TotalMinorUnits = total,
             Actor = actor,
-            Origin = session.Origin
+            Origin = session.Origin,
+            Reason = reason
         }, session.CorrelationId);
 
         return new SessionResult(SessionOutcome.Ended,
             c.Query(tx, "SELECT * FROM sessions WHERE session_id = $id", MapSession, ("$id", sessionId)).Single());
+    }
+
+    /// <summary>
+    /// Продление: только активная сессия с лимитом; суммарный лимит — не больше суток. Отказ не пишет событие:
+    /// Cloud узнаёт актуальный лимит только из SessionExtended, поэтому состояния не расходятся.
+    /// </summary>
+    private SessionResult ExtendSessionCore(SqliteConnection c, SqliteTransaction tx, string sessionId, int minutes,
+        string actor, DateTimeOffset now)
+    {
+        var session = c.Query(tx, "SELECT * FROM sessions WHERE session_id = $id", MapSession, ("$id", sessionId))
+            .FirstOrDefault();
+        if (session is null)
+        {
+            return new SessionResult(SessionOutcome.NotFound, null, "Сессия не найдена на Edge.");
+        }
+
+        if (session.State != SessionState.Active)
+        {
+            return new SessionResult(SessionOutcome.Rejected, session, "Сессия уже завершена.");
+        }
+
+        if (session.PlannedEndAtUtc is not { } plannedEnd)
+        {
+            return new SessionResult(SessionOutcome.Rejected, session, "Сессия без лимита времени — продлевать нечего.");
+        }
+
+        if (minutes is < SessionLimits.MinExtendMinutes or > SessionLimits.MaxExtendMinutes)
+        {
+            return new SessionResult(SessionOutcome.Rejected, session,
+                $"Продление должно быть от {SessionLimits.MinExtendMinutes} до {SessionLimits.MaxExtendMinutes} минут.");
+        }
+
+        if (plannedEnd <= now)
+        {
+            return new SessionResult(SessionOutcome.Rejected, session, "Лимит уже истёк — сессия завершается.");
+        }
+
+        var newEnd = plannedEnd.AddMinutes(minutes);
+        if (newEnd - session.StartedAtUtc > TimeSpan.FromMinutes(SessionLimits.MaxDurationMinutes))
+        {
+            return new SessionResult(SessionOutcome.Rejected, session,
+                $"Суммарный лимит сессии не может превышать {SessionLimits.MaxDurationMinutes / 60} часа.");
+        }
+
+        c.Exec(tx, "UPDATE sessions SET planned_end_at_utc = $end WHERE session_id = $id AND state = 'Active'",
+            ("$end", newEnd), ("$id", sessionId));
+        AppendEvent(c, tx, EventTypes.SessionExtended, sessionId, new SessionExtendedPayload
+        {
+            SessionId = sessionId,
+            DeviceId = session.DeviceId,
+            AddedMinutes = minutes,
+            PlannedEndAtUtc = newEnd,
+            Actor = actor
+        }, session.CorrelationId);
+
+        return new SessionResult(SessionOutcome.Extended, session with { PlannedEndAtUtc = newEnd });
     }
 
     // ---------- Outbox ----------
@@ -654,5 +849,6 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
             Rounding = Enum.Parse<RoundingRule>(r.S("rounding")),
             RuleVersion = (int)r.L("rule_version")
         },
-        r.LN("total_minor_units"), r.S("started_by"), r.Str("ended_by"), r.S("correlation_id"));
+        r.LN("total_minor_units"), r.S("started_by"), r.Str("ended_by"), r.S("correlation_id"),
+        r.TN("planned_end_at_utc"), r.Str("end_reason"));
 }

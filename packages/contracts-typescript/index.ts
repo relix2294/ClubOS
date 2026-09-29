@@ -128,6 +128,36 @@ export interface SessionView {
   failureReason: string | null;
   startedBy: string;
   endedBy: string | null;
+  /** Лимит времени (минуты); null — открытая сессия (постоплата). */
+  durationMinutes: number | null;
+  /** Плановое окончание по часам Edge; известно после старта, сдвигается продлениями. */
+  plannedEndAtUtc: string | null;
+  /** "staff" | "timeLimit" — причина завершения. */
+  endReason: SessionEndReason | null;
+}
+
+export type SessionEndReason = "staff" | "timeLimit";
+
+export interface StartSessionRequest {
+  durationMinutes?: number | null;
+}
+
+export interface ExtendSessionRequest {
+  minutes: number;
+}
+
+/** Ограничения лимита (как SessionLimits в C#). */
+export const SessionLimits = {
+  minDurationMinutes: 1,
+  maxDurationMinutes: 24 * 60,
+  minExtendMinutes: 1,
+  maxExtendMinutes: 12 * 60,
+} as const;
+
+/** Остаток лимита в мс (не меньше 0) или null для открытой сессии. */
+export function remainingMs(session: Pick<SessionView, "plannedEndAtUtc">, nowMs: number): number | null {
+  if (!session.plannedEndAtUtc) return null;
+  return Math.max(0, Date.parse(session.plannedEndAtUtc) - nowMs);
 }
 
 // ---- Audit (ТЗ §27.4) ----

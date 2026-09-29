@@ -73,6 +73,7 @@ builder.Services.AddHostedService<EnrollmentWorker>();
 builder.Services.AddHostedService<OutboxPublisher>();
 builder.Services.AddHostedService<CommandPuller>();
 builder.Services.AddHostedService<StatusWorker>();
+builder.Services.AddHostedService<SessionTimerWorker>();
 
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddProblemDetails();

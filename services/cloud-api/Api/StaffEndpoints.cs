@@ -35,6 +35,7 @@ public static class StaffEndpoints
         api.MapGet("/devices/{deviceId}/sessions", ListSessions).WithTags("Sessions").RequirePermission(Permissions.DevicesView);
         api.MapPost("/devices/{deviceId}/sessions", StartSession).WithTags("Sessions").RequirePermission(Permissions.SessionsManage);
         api.MapPost("/sessions/{sessionId}/end", EndSession).WithTags("Sessions").RequirePermission(Permissions.SessionsManage);
+        api.MapPost("/sessions/{sessionId}/extend", ExtendSession).WithTags("Sessions").RequirePermission(Permissions.SessionsManage);
         api.MapGet("/audit", ListAudit).WithTags("Audit").RequirePermission(Permissions.AuditView);
 
         var enrollment = app.MapGroup("/api/v1/enrollment-tokens").WithTags("Enrollment")
@@ -243,10 +244,17 @@ public static class StaffEndpoints
     /// Запрос старта сессии. Источник истины — Edge (ТЗ §23.3): Cloud фиксирует price snapshot,
     /// ставит StartSession в очередь Edge и возвращает 202; Active наступает по событию SessionStarted.
     /// </summary>
-    private static async Task<IResult> StartSession(string deviceId, HttpContext http, ClubOsDbContext db,
-        AuditWriter audit, TimeProvider time, CancellationToken ct)
+    private static async Task<IResult> StartSession(string deviceId, StartSessionRequestBody? body, HttpContext http,
+        ClubOsDbContext db, AuditWriter audit, TimeProvider time, CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
+        var duration = body?.DurationMinutes;
+        if (duration is < SessionLimits.MinDurationMinutes or > SessionLimits.MaxDurationMinutes)
+        {
+            return Problems.Validation("durationMinutes",
+                $"Лимит времени — от {SessionLimits.MinDurationMinutes} до {SessionLimits.MaxDurationMinutes} минут.");
+        }
+
         var device = await db.Devices.SingleOrDefaultAsync(x => x.Id == deviceId && x.TenantId == staff.TenantId, ct);
         if (device is null)
         {
@@ -276,7 +284,8 @@ public static class StaffEndpoints
             Rounding = zone.Rounding,
             RuleVersion = zone.RuleVersion,
             StartedBy = staff.Actor,
-            CorrelationId = Ids.New("cor")
+            CorrelationId = Ids.New("cor"),
+            DurationMinutes = duration
         };
         db.Sessions.Add(session);
         EdgeQueue.Enqueue(db, staff.TenantId, device.LocationId, new EdgeCommand
@@ -291,11 +300,13 @@ public static class StaffEndpoints
                 DeviceId = deviceId,
                 PriceSnapshot = session.Snapshot(),
                 Actor = staff.Actor,
-                CorrelationId = session.CorrelationId
+                CorrelationId = session.CorrelationId,
+                DurationMinutes = duration
             }
         });
         audit.Write(staff.TenantId, device.LocationId, staff.Actor, "session.start", $"device:{deviceId}",
-            AuditResults.Requested, session.CorrelationId, new { sessionId = session.Id, zone.PricePerHourMinorUnits });
+            AuditResults.Requested, session.CorrelationId,
+            new { sessionId = session.Id, zone.PricePerHourMinorUnits, durationMinutes = duration });
         await db.SaveChangesAsync(ct);
 
         return Results.Accepted($"/api/v1/devices/{deviceId}/sessions", session.ToView());
@@ -334,6 +345,59 @@ public static class StaffEndpoints
         });
         audit.Write(staff.TenantId, session.LocationId, staff.Actor, "session.end", $"device:{session.DeviceId}",
             AuditResults.Requested, session.CorrelationId, new { sessionId = session.Id });
+        await db.SaveChangesAsync(ct);
+
+        return Results.Accepted($"/api/v1/devices/{session.DeviceId}/sessions", session.ToView());
+    }
+
+    /// <summary>
+    /// Продление сессии с лимитом. Cloud не меняет плановое окончание сам: его двигает Edge,
+    /// а Cloud узнаёт новое значение из события SessionExtended (Edge — источник истины).
+    /// </summary>
+    private static async Task<IResult> ExtendSession(string sessionId, ExtendSessionRequest request, HttpContext http,
+        ClubOsDbContext db, AuditWriter audit, TimeProvider time, CancellationToken ct)
+    {
+        var staff = StaffContext.From(http.User);
+        if (request.Minutes is < SessionLimits.MinExtendMinutes or > SessionLimits.MaxExtendMinutes)
+        {
+            return Problems.Validation("minutes",
+                $"Продление — от {SessionLimits.MinExtendMinutes} до {SessionLimits.MaxExtendMinutes} минут.");
+        }
+
+        var session = await db.Sessions.SingleOrDefaultAsync(x => x.Id == sessionId && x.TenantId == staff.TenantId, ct);
+        if (session is null)
+        {
+            return Problems.NotFound("Сессия");
+        }
+
+        if (session.State != SessionState.Active || session.EndRequestedAtUtc is not null)
+        {
+            return Problems.Conflict("session_not_active", "Продлить можно только идущую сессию.");
+        }
+
+        if (session.DurationMinutes is null)
+        {
+            return Problems.Conflict("session_unlimited", "Сессия без лимита времени — продлевать нечего.");
+        }
+
+        var now = time.GetUtcNow();
+        EdgeQueue.Enqueue(db, staff.TenantId, session.LocationId, new EdgeCommand
+        {
+            Id = Ids.New("ecm"),
+            Kind = EdgeCommandKind.ExtendSession,
+            IssuedAtUtc = now,
+            // Продление без связи с клубом теряет смысл, если лимит истечёт раньше доставки.
+            ExpiresAtUtc = now.AddMinutes(10),
+            ExtendSession = new ExtendSessionCommand
+            {
+                SessionId = session.Id,
+                Minutes = request.Minutes,
+                Actor = staff.Actor,
+                CorrelationId = session.CorrelationId
+            }
+        });
+        audit.Write(staff.TenantId, session.LocationId, staff.Actor, "session.extend", $"device:{session.DeviceId}",
+            AuditResults.Requested, session.CorrelationId, new { sessionId = session.Id, request.Minutes });
         await db.SaveChangesAsync(ct);
 
         return Results.Accepted($"/api/v1/devices/{session.DeviceId}/sessions", session.ToView());

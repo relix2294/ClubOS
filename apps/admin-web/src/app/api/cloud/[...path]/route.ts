@@ -17,7 +17,7 @@ const ALLOWED = [
   /^locations\/[\w-]+\/devices$/,
   /^devices\/[\w-]+$/,
   /^devices\/[\w-]+\/(commands|sessions)$/,
-  /^sessions\/[\w-]+\/end$/,
+  /^sessions\/[\w-]+\/(end|extend)$/,
   /^audit$/,
   /^enrollment-tokens\/(device|edge)$/,
   /^staff$/,

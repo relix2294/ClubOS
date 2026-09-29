@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using ClubOS.Contracts;
 using ClubOS.EdgeController.Storage;
 using ClubOS.Security;
@@ -37,8 +38,18 @@ public sealed class CloudClient(HttpClient http, EdgeIdentityStore identity, Tim
     public Task<SyncBatchResponse> SyncAsync(SyncBatchRequest batch, CancellationToken ct) =>
         SendAsync<SyncBatchResponse>(HttpMethod.Post, "api/v1/edge/sync", batch, ct);
 
-    public Task<EdgeCommandsResponse> PullCommandsAsync(int waitSeconds, CancellationToken ct) =>
-        SendAsync<EdgeCommandsResponse>(HttpMethod.Get, $"api/v1/edge/commands?waitSeconds={waitSeconds}", null, ct);
+    /// <summary>
+    /// Long-poll очереди Cloud. Элементы разбираются по одному: элемент, который эта версия Edge не понимает
+    /// (Cloud новее Edge), не блокирует остальные — он не подтверждается и истечёт в очереди Cloud сам.
+    /// </summary>
+    public async Task<PulledCommands> PullCommandsAsync(int waitSeconds, CancellationToken ct)
+    {
+        var raw = await SendAsync<RawCommandsResponse>(HttpMethod.Get, $"api/v1/edge/commands?waitSeconds={waitSeconds}",
+            null, ct);
+        return PulledCommands.Parse(raw.Commands);
+    }
+
+    private sealed record RawCommandsResponse(IReadOnlyList<JsonElement> Commands);
 
     public Task AckCommandsAsync(IReadOnlyList<string> ids, CancellationToken ct) =>
         SendAsync<object>(HttpMethod.Post, "api/v1/edge/commands/ack", new EdgeCommandsAck { Ids = ids }, ct);

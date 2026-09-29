@@ -106,6 +106,7 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.HasIndex(x => new { x.DeviceId, x.RequestedAtUtc });
             e.Property(x => x.State).HasConversion<string>();
             e.Property(x => x.Rounding).HasConversion<string>();
+            e.Property(x => x.EndReason).HasMaxLength(32);
             e.HasOne<Device>().WithMany().HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Restrict);
         });
 

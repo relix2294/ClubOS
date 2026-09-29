@@ -19,7 +19,13 @@ public sealed class EdgeClient(HttpClient http, AgentIdentityStore identity, Tim
         SendAsync<HeartbeatAck>(HttpMethod.Post, "agent/v1/heartbeat", heartbeat, ct);
 
     public Task<AgentCommandsResponse> GetCommandsAsync(int waitSeconds, CancellationToken ct) =>
-        SendAsync<AgentCommandsResponse>(HttpMethod.Get, $"agent/v1/commands?waitSeconds={waitSeconds}", null, ct);
+        GetCommandsAsync(waitSeconds, null, ct);
+
+    /// <summary>Long-poll; с <paramref name="sessionStamp"/> Edge отвечает сразу при изменении сессии устройства.</summary>
+    public Task<AgentCommandsResponse> GetCommandsAsync(int waitSeconds, string? sessionStamp, CancellationToken ct) =>
+        SendAsync<AgentCommandsResponse>(HttpMethod.Get,
+            $"agent/v1/commands?waitSeconds={waitSeconds}" +
+            (sessionStamp is null ? string.Empty : $"&sessionStamp={Uri.EscapeDataString(sessionStamp)}"), null, ct);
 
     public Task ReportResultAsync(string commandId, CommandState state, string? error, CancellationToken ct) =>
         SendAsync<object>(HttpMethod.Post, $"agent/v1/commands/{Uri.EscapeDataString(commandId)}/result",

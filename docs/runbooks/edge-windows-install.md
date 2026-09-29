@@ -63,7 +63,9 @@ $cli = 'C:\Program Files\ClubOS\Edge\edge-cli.exe'
 & $cli status                        # связь с Cloud, очередь outbox, активные сессии
 & $cli devices                       # ПК и их статус
 & $cli sessions --active
-& $cli start PC-01 --actor Иван      # начать сессию (тариф из кэша)
+& $cli start PC-01 --actor Иван      # начать открытую сессию (тариф из кэша)
+& $cli start PC-01 --minutes 60      # сессия с лимитом: через 60 мин Edge завершит её сам и закроет ПК
+& $cli extend <sessionId> 30         # продлить сессию с лимитом на 30 мин
 & $cli end <sessionId> --actor Иван  # завершить (идемпотентно)
 ```
 

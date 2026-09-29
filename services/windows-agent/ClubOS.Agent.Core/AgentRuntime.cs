@@ -1,11 +1,12 @@
+using ClubOS.Agent.Core.PlayerShell;
 using ClubOS.Contracts;
 using Microsoft.Extensions.Logging;
 
 namespace ClubOS.Agent.Core;
 
 /// <summary>
-/// Главный цикл агента: enrollment (если нужно) → параллельно heartbeat каждые N сек и
-/// long-poll команд. Сбои связи с Edge не роняют агента: повтор с backoff.
+/// Главный цикл агента: enrollment (если нужно) → параллельно heartbeat каждые N сек,
+/// long-poll команд и Player Shell. Сбои связи с Edge не роняют агента: повтор с backoff.
 /// </summary>
 public sealed class AgentRuntime(
     AgentOptions options,
@@ -14,6 +15,7 @@ public sealed class AgentRuntime(
     IInventoryProvider inventory,
     IUserPresenter presenter,
     CommandExecutor executor,
+    PlayerShellController shell,
     TimeProvider time,
     ILogger<AgentRuntime> logger)
 {
@@ -24,13 +26,20 @@ public sealed class AgentRuntime(
     /// <summary>Симулятор может «выключить» устройство — heartbeat и команды приостанавливаются.</summary>
     public bool Paused { get; set; }
 
+    public PlayerShellController Shell => shell;
+
     public async Task RunAsync(CancellationToken ct)
     {
+        // Player Shell стартует до enrollment: незарегистрированный ПК в режиме Enforced тоже закрыт экраном клуба.
+        var shellLoop = shell.RunAsync(ct);
         await EnsureEnrolledAsync(ct);
         logger.LogInformation("Агент {DeviceId} ({Name}) запущен, Edge: {EdgeUrl}", identity.Current!.DeviceId,
             identity.Current.DisplayName, options.EdgeUrl);
-        await Task.WhenAll(HeartbeatLoop(ct), CommandLoop(ct));
+        await Task.WhenAll(HeartbeatLoop(ct), CommandLoop(ct), shellLoop);
     }
+
+    private DeviceStatus CurrentStatus() =>
+        presenter.IsLocked ? DeviceStatus.Locked : shell.InMaintenance ? DeviceStatus.Maintenance : DeviceStatus.Idle;
 
     public async Task EnsureEnrolledAsync(CancellationToken ct)
     {
@@ -87,13 +96,17 @@ public sealed class AgentRuntime(
                 {
                     // Инвентаризация — с первым heartbeat и затем раз в ~5 минут.
                     var withInventory = _heartbeats++ % 30 == 0;
-                    await edge.HeartbeatAsync(new HeartbeatMessage
+                    var ack = await edge.HeartbeatAsync(new HeartbeatMessage
                     {
                         DeviceId = identity.Current!.DeviceId,
-                        Status = presenter.IsLocked ? DeviceStatus.Locked : DeviceStatus.Idle,
+                        Status = CurrentStatus(),
                         ClockUtc = time.GetUtcNow(),
                         Inventory = withInventory ? inventory.Collect() : null
                     }, ct);
+                    if (ack.State is { } state)
+                    {
+                        shell.Apply(state);
+                    }
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -126,7 +139,13 @@ public sealed class AgentRuntime(
 
             try
             {
-                var response = await edge.GetCommandsAsync(options.CommandPollSeconds, ct);
+                var response = await edge.GetCommandsAsync(options.CommandPollSeconds, shell.KnownStamp, ct);
+                if (response.State is { } state)
+                {
+                    shell.Apply(state);
+                    await shell.TickAsync(ct); // старт/окончание сессии отражается на экране без ожидания тика
+                }
+
                 foreach (var command in response.Commands)
                 {
                     await executor.ExecuteAsync(identity.Current!.DeviceId, command,

@@ -90,6 +90,19 @@ jobs:
           Start-Sleep -Seconds 8
           if ($p.HasExited) { throw "ClubOS.Agent.Service завершился с кодом $($p.ExitCode)" }
           Stop-Process -Id $p.Id -Force
+      - name: Smoke Player Shell (hash-pin, Enforced mode)
+        shell: pwsh
+        run: |
+          $hash = '246810' | & out/agent-sc/ClubOS.Agent.Service.exe hash-pin
+          if ($LASTEXITCODE -ne 0 -or -not ([string]$hash).StartsWith('pbkdf2-sha256$')) { throw "hash-pin: '$hash' (код $LASTEXITCODE)" }
+          '12' | & out/agent-sc/ClubOS.Agent.Service.exe hash-pin
+          if ($LASTEXITCODE -eq 0) { throw 'hash-pin принял слишком короткий PIN' }
+          # Enforced: запускаются Player Shell и сторож SessionHost; без Edge и без прав SYSTEM процесс должен жить.
+          $p = Start-Process -FilePath out/agent-sc/ClubOS.Agent.Service.exe -PassThru -NoNewWindow -ArgumentList `
+            '--Agent:DataPath', "$env:RUNNER_TEMP\agent-shell", '--Agent:Shell:Mode', 'Enforced', '--Agent:Shell:TechnicianPinHash', ([string]$hash).Trim()
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) { throw "ClubOS.Agent.Service (Enforced) завершился с кодом $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
       - name: Unit tests on Windows (SQLite store, DPAPI, agent core)
         run: dotnet test tests/unit/ClubOS.Unit.Tests.csproj -c Release
       - name: Publish Edge Controller + edge-cli (self-contained)

@@ -35,3 +35,16 @@ export function formatAgo(utc: string | null, now: number): string {
   if (minutes < 60) return `${minutes} мин назад`;
   return `${Math.round(minutes / 60)} ч назад`;
 }
+
+/** Лимит сессии: 30 → «30 мин», 90 → «1 ч 30 мин», 120 → «2 ч». */
+export function formatLimit(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return `${m} мин`;
+  return m === 0 ? `${h} ч` : `${h} ч ${m} мин`;
+}
+
+export function formatTime(utc: string | null | undefined, timeZone: string): string {
+  if (!utc) return "—";
+  return new Intl.DateTimeFormat("ru-RU", { timeZone, hour: "2-digit", minute: "2-digit" }).format(new Date(utc));
+}

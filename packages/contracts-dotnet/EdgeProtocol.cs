@@ -88,7 +88,10 @@ public enum EdgeCommandKind
     /// <summary>Запрос старта сессии; источник истины — Edge (ТЗ §23.3).</summary>
     StartSession,
 
-    EndSession
+    EndSession,
+
+    /// <summary>Продление сессии с лимитом времени (M1, Player Shell).</summary>
+    ExtendSession
 }
 
 /// <summary>Элемент очереди Cloud → Edge. Edge дедуплицирует по <see cref="Id"/>.</summary>
@@ -101,6 +104,7 @@ public sealed record EdgeCommand
     public CommandEnvelope? DeviceCommand { get; init; }
     public StartSessionCommand? StartSession { get; init; }
     public EndSessionCommand? EndSession { get; init; }
+    public ExtendSessionCommand? ExtendSession { get; init; }
 }
 
 public sealed record StartSessionCommand
@@ -110,11 +114,26 @@ public sealed record StartSessionCommand
     public required PriceSnapshot PriceSnapshot { get; init; }
     public required string Actor { get; init; }
     public required string CorrelationId { get; init; }
+
+    /// <summary>
+    /// Лимит времени в минутах (предоплаченный пакет). null — открытая сессия (постоплата).
+    /// Отсчёт — от фактического старта на Edge, не от запроса в Cloud.
+    /// </summary>
+    public int? DurationMinutes { get; init; }
 }
 
 public sealed record EndSessionCommand
 {
     public required string SessionId { get; init; }
+    public required string Actor { get; init; }
+    public required string CorrelationId { get; init; }
+}
+
+/// <summary>Продление лимита на <see cref="Minutes"/>. Идемпотентность — по Id элемента очереди (inbox Edge).</summary>
+public sealed record ExtendSessionCommand
+{
+    public required string SessionId { get; init; }
+    public required int Minutes { get; init; }
     public required string Actor { get; init; }
     public required string CorrelationId { get; init; }
 }

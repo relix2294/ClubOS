@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using ClubOS.Agent.Core.PlayerShell;
 
 namespace ClubOS.Agent.Core;
 
@@ -16,8 +17,24 @@ public static class SessionHostProtocol
 
     /// <summary>Уведомление от SessionHost: пользователь снял overlay аварийной комбинацией.</summary>
     public const string TypeLocalUnlock = "localUnlock";
+
+    /// <summary>Service → SessionHost: новое состояние Player Shell (<see cref="HostRequest.Shell"/>).</summary>
+    public const string TypeShell = "shell";
+
+    /// <summary>SessionHost → Service: техник ввёл PIN (<see cref="HostMessage.Pin"/>); ответ — <see cref="TypeMaintenanceResult"/>.</summary>
+    public const string TypeMaintenanceRequest = "maintenanceRequest";
+
+    /// <summary>Service → SessionHost: результат проверки PIN (Ok/Error), Id = Id запроса.</summary>
+    public const string TypeMaintenanceResult = "maintenanceResult";
+
+    /// <summary>SessionHost → Service: техник завершил обслуживание досрочно.</summary>
+    public const string TypeMaintenanceEnd = "maintenanceEnd";
+
+    /// <summary>Максимальная длина строки протокола: защита от «бесконечной» строки в pipe.</summary>
+    public const int MaxLineLength = 64 * 1024;
 }
 
+/// <summary>Сообщение Service → SessionHost.</summary>
 public sealed record HostRequest
 {
     [JsonPropertyName("id")] public required string Id { get; init; }
@@ -26,13 +43,21 @@ public sealed record HostRequest
     [JsonPropertyName("message")] public string? Message { get; init; }
     [JsonPropertyName("lock")] public bool? Lock { get; init; }
     [JsonPropertyName("reason")] public string? Reason { get; init; }
+    [JsonPropertyName("shell")] public ShellState? Shell { get; init; }
+
+    /// <summary>Для ответов службы на запросы SessionHost (maintenanceResult).</summary>
+    [JsonPropertyName("ok")] public bool? Ok { get; init; }
+
+    [JsonPropertyName("error")] public string? Error { get; init; }
 }
 
+/// <summary>Сообщение SessionHost → Service: ответ на запрос или уведомление/запрос по инициативе SessionHost.</summary>
 public sealed record HostMessage
 {
-    /// <summary>ID запроса, на который это ответ; null — уведомление по инициативе SessionHost.</summary>
+    /// <summary>ID запроса, на который это ответ; для запросов SessionHost — собственный ID.</summary>
     [JsonPropertyName("id")] public string? Id { get; init; }
     [JsonPropertyName("type")] public string? Type { get; init; }
     [JsonPropertyName("ok")] public bool Ok { get; init; }
     [JsonPropertyName("error")] public string? Error { get; init; }
+    [JsonPropertyName("pin")] public string? Pin { get; init; }
 }

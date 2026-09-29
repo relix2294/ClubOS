@@ -57,6 +57,18 @@ public sealed record StartSessionRequest
     public required string CorrelationId { get; init; }
 }
 
+/// <summary>Ограничения лимита времени сессии (минуты).</summary>
+public static class SessionLimits
+{
+    public const int MinDurationMinutes = 1;
+
+    /// <summary>Максимальный лимит одной сессии, включая продления (24 часа).</summary>
+    public const int MaxDurationMinutes = 24 * 60;
+
+    public const int MinExtendMinutes = 1;
+    public const int MaxExtendMinutes = 12 * 60;
+}
+
 /// <summary>Итог завершённой сессии.</summary>
 public sealed record SessionSummary
 {

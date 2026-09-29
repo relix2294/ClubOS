@@ -197,6 +197,15 @@ public sealed class Session
     public long? TotalMinorUnits { get; set; }
     public string? FailureReason { get; set; }
 
+    /// <summary>Запрошенный лимит (минуты); null — открытая сессия (постоплата).</summary>
+    public int? DurationMinutes { get; set; }
+
+    /// <summary>Плановое окончание — известно после старта на Edge, меняется продлениями (SessionExtended).</summary>
+    public DateTimeOffset? PlannedEndAtUtc { get; set; }
+
+    /// <summary>Причина завершения: staff / timeLimit (<see cref="SessionEndReasons"/>).</summary>
+    public string? EndReason { get; set; }
+
     public required string StartedBy { get; set; }
     public string? EndedBy { get; set; }
     public required string CorrelationId { get; set; }
