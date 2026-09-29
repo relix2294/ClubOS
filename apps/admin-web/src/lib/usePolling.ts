@@ -1,6 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLive, type LiveFilter } from "./live";
+
+/** При работающем live-потоке опрос остаётся только страховкой. */
+export const LIVE_FALLBACK_MS = 30_000;
+const LIVE_DEBOUNCE_MS = 150;
 
 export interface PollingState<T> {
   data: T | undefined;
@@ -10,10 +15,16 @@ export interface PollingState<T> {
 }
 
 /**
- * Периодический опрос Cloud API (M0: near-realtime через polling, DEVIATIONS D-008).
- * Не накладывает запросы друг на друга, отменяет запрос при размонтировании.
+ * Данные Cloud API с обновлением. С фильтром <paramref name="live"/> данные перечитываются сразу по подсказке
+ * live-потока, а опрос становится страховочным (раз в {@link LIVE_FALLBACK_MS}). Без потока — обычный опрос
+ * раз в <paramref name="intervalMs"/>. Не накладывает запросы друг на друга, отменяет запрос при размонтировании.
  */
-export function usePolling<T>(fetcher: (signal: AbortSignal) => Promise<T>, intervalMs: number, deps: unknown[] = []): PollingState<T> {
+export function usePolling<T>(
+  fetcher: (signal: AbortSignal) => Promise<T>,
+  intervalMs: number,
+  deps: unknown[] = [],
+  live?: LiveFilter,
+): PollingState<T> {
   const [data, setData] = useState<T>();
   const [error, setError] = useState<Error>();
   const [loading, setLoading] = useState(true);
@@ -25,6 +36,24 @@ export function usePolling<T>(fetcher: (signal: AbortSignal) => Promise<T>, inte
   });
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
+  const liveCtx = useLive();
+  const liveKey = live ? JSON.stringify(live) : null;
+  const subscribe = liveCtx?.subscribe;
+  const effectiveInterval = live && liveCtx?.status === "live" ? Math.max(intervalMs, LIVE_FALLBACK_MS) : intervalMs;
+
+  useEffect(() => {
+    if (!liveKey || !subscribe) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Несколько подсказок подряд (команда: Queued → Delivered → Succeeded) — одно перечитывание.
+    const unsubscribe = subscribe(JSON.parse(liveKey) as LiveFilter, () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(refresh, LIVE_DEBOUNCE_MS);
+    });
+    return () => {
+      unsubscribe();
+      if (timer) clearTimeout(timer);
+    };
+  }, [liveKey, subscribe, refresh]);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,7 +75,7 @@ export function usePolling<T>(fetcher: (signal: AbortSignal) => Promise<T>, inte
       } finally {
         if (!cancelled) {
           setLoading(false);
-          timer = setTimeout(run, intervalMs);
+          timer = setTimeout(run, effectiveInterval);
         }
       }
     };
@@ -58,7 +87,7 @@ export function usePolling<T>(fetcher: (signal: AbortSignal) => Promise<T>, inte
       if (timer) clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intervalMs, tick, ...deps]);
+  }, [effectiveInterval, tick, ...deps]);
 
   return { data, error, loading, refresh };
 }

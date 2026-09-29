@@ -6,6 +6,7 @@ import { createContext, useContext, useEffect, type ReactNode } from "react";
 import type { LocationView, MeResponse, Permission } from "@clubos/contracts";
 import { UNAUTHORIZED_EVENT, apiGet } from "@/lib/api";
 import { roleLabel, t } from "@/lib/i18n";
+import { useLive } from "@/lib/live";
 import { usePolling } from "@/lib/usePolling";
 import { ErrorState, Loading } from "./ui";
 
@@ -42,8 +43,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
     return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
   }, [router]);
-  // /me включает статус Edge — обновляем раз в 10 секунд.
-  const { data: me, error, refresh } = usePolling((signal) => apiGet<MeResponse>("me", signal), 10_000);
+  // /me включает статус Edge: по live-подсказке «edges» сразу, иначе раз в 10 секунд.
+  const { data: me, error, refresh } = usePolling((signal) => apiGet<MeResponse>("me", signal), 10_000, [], {
+    topics: ["edges", "staff"],
+  });
+  const live = useLive();
   const mustChangePassword = me?.user.mustChangePassword === true;
 
   // Временный пароль: до смены доступна только страница «Мой пароль» (backend тоже запрещает остальное).
@@ -149,6 +153,15 @@ export function AppShell({ children }: { children: ReactNode }) {
                   </Link>
                 ))}
               </nav>
+              <span
+                data-testid="live-status"
+                data-live={live?.status ?? "offline"}
+                title={live?.status === "live" ? t.live.onHint : t.live.offHint}
+                className={`hidden items-center gap-1.5 text-xs sm:inline-flex ${live?.status === "live" ? "text-emerald-700" : "text-slate-500"}`}
+              >
+                <span aria-hidden className={`h-2 w-2 rounded-full ${live?.status === "live" ? "bg-emerald-500" : "bg-slate-400"}`} />
+                {live?.status === "live" ? t.live.on : live?.status === "connecting" ? t.live.connecting : t.live.off}
+              </span>
               <span className="text-slate-600" data-testid="current-user">
                 {me.user.displayName} · {roleLabel(me.user.role)}
               </span>

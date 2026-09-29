@@ -13,7 +13,7 @@ const ROLES: StaffRole[] = ["Owner", "Admin", "Operator"];
 
 export default function StaffPage() {
   const { me, location, can } = useShell();
-  const staff = usePolling((s) => apiGet<StaffMemberView[]>("staff", s), 15_000);
+  const staff = usePolling((s) => apiGet<StaffMemberView[]>("staff", s), 15_000, [], { topics: ["staff"] });
   const [temp, setTemp] = useState<TemporaryPasswordResponse>();
   const [error, setError] = useState<string>();
 

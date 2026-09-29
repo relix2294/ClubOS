@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
+using ClubOS.CloudApi.Live;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,7 +23,11 @@ var connectionString = builder.Configuration.GetConnectionString("ClubOs")
     ?? throw new InvalidOperationException("Нет ConnectionStrings:ClubOs (env CLUBOS_ConnectionStrings__ClubOs).");
 
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddDbContext<ClubOsDbContext>(o => o.UseNpgsql(connectionString));
+builder.Services.AddSingleton<LiveBroker>();
+builder.Services.AddSingleton<LiveChangeInterceptor>();
+builder.Services.AddHostedService<LivePresenceMonitor>();
+builder.Services.AddDbContext<ClubOsDbContext>((sp, o) => o.UseNpgsql(connectionString)
+    .AddInterceptors(sp.GetRequiredService<LiveChangeInterceptor>()));
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.Section));
 builder.Services.Configure<SeedOptions>(builder.Configuration.GetSection(SeedOptions.Section));
 builder.Services.AddSingleton<SigningKeyProvider>();
@@ -162,6 +167,7 @@ app.MapAuthEndpoints();
 app.MapStaffEndpoints();
 app.MapStaffManagementEndpoints();
 app.MapEdgeEndpoints();
+app.MapLiveEndpoints();
 
 await app.RunAsync();
 return 0;

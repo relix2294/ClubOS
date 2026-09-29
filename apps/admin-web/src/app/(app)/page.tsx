@@ -19,6 +19,7 @@ export default function DashboardPage() {
     (signal) => apiGet<DeviceView[]>(`locations/${location.locationId}/devices`, signal),
     3000,
     [location.locationId],
+    { topics: ["devices", "sessions"], locationId: location.locationId },
   );
 
   const counts = (devices ?? []).reduce<Partial<Record<DeviceStatus, number>>>((acc, d) => {

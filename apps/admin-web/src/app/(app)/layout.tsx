@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
+import { LiveProvider } from "@/lib/live";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const jar = await cookies();
@@ -8,5 +9,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     redirect("/login");
   }
 
-  return <AppShell>{children}</AppShell>;
+  return (
+    <LiveProvider>
+      <AppShell>{children}</AppShell>
+    </LiveProvider>
+  );
 }

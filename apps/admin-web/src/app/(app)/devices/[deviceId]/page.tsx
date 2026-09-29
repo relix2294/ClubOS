@@ -26,7 +26,10 @@ import { usePolling } from "@/lib/usePolling";
 export default function DevicePage() {
   const { deviceId } = useParams<{ deviceId: string }>();
   const { location, can } = useShell();
-  const device = usePolling((s) => apiGet<DeviceView>(`devices/${deviceId}`, s), 3000, [deviceId]);
+  const device = usePolling((s) => apiGet<DeviceView>(`devices/${deviceId}`, s), 3000, [deviceId], {
+    topics: ["devices", "sessions"],
+    deviceId,
+  });
 
   if (device.error instanceof ApiError && device.error.status === 404) {
     return <EmptyState>{t.device.notFound}</EmptyState>;
@@ -103,7 +106,10 @@ const EXTEND_PRESETS = [15, 30, 60];
 
 function SessionCard({ device, onChange }: { device: DeviceView; onChange: () => void }) {
   const { location, can } = useShell();
-  const history = usePolling((s) => apiGet<SessionView[]>(`devices/${device.deviceId}/sessions`, s), 5000, [device.deviceId]);
+  const history = usePolling((s) => apiGet<SessionView[]>(`devices/${device.deviceId}/sessions`, s), 5000, [device.deviceId], {
+    topics: ["sessions"],
+    deviceId: device.deviceId,
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [limit, setLimit] = useState<string>("60");
@@ -277,7 +283,10 @@ function SessionCard({ device, onChange }: { device: DeviceView; onChange: () =>
 
 function CommandsCard({ deviceId, timezone }: { deviceId: string; timezone: string }) {
   const { can } = useShell();
-  const commands = usePolling((s) => apiGet<CommandView[]>(`devices/${deviceId}/commands`, s), 2000, [deviceId]);
+  const commands = usePolling((s) => apiGet<CommandView[]>(`devices/${deviceId}/commands`, s), 2000, [deviceId], {
+    topics: ["commands"],
+    deviceId,
+  });
   const [title, setTitle] = useState("Сообщение от администратора");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -360,7 +369,12 @@ function CommandsCard({ deviceId, timezone }: { deviceId: string; timezone: stri
 }
 
 function DeviceAuditCard({ deviceId, timezone }: { deviceId: string; timezone: string }) {
-  const audit = usePolling((s) => apiGet<AuditEventView[]>(`audit?target=${encodeURIComponent(`device:${deviceId}`)}&limit=30`, s), 4000, [deviceId]);
+  const audit = usePolling(
+    (s) => apiGet<AuditEventView[]>(`audit?target=${encodeURIComponent(`device:${deviceId}`)}&limit=30`, s),
+    4000,
+    [deviceId],
+    { topics: ["audit"], deviceId },
+  );
   return (
     <Card title={t.device.audit} className="xl:col-span-2">
       {audit.error && <ErrorState error={audit.error} onRetry={audit.refresh} />}

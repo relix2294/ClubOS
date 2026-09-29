@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Claims;
 using ClubOS.CloudApi.Data;
 using ClubOS.CloudApi.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -15,27 +16,34 @@ public static class StaffTokenValidation
 {
     public static async Task OnTokenValidated(TokenValidatedContext context)
     {
-        var principal = context.Principal;
-        var userId = principal?.FindFirst("sub")?.Value;
-        var tokenVersion = principal?.FindFirst(StaffContext.TokenVersionClaim)?.Value;
-        if (userId is null || tokenVersion is null ||
-            !int.TryParse(tokenVersion, NumberStyles.Integer, CultureInfo.InvariantCulture, out var version))
-        {
-            context.Fail("token without user version");
-            return;
-        }
-
         var db = context.HttpContext.RequestServices.GetRequiredService<ClubOsDbContext>();
-        var user = await db.Users.AsNoTracking()
-            .Where(x => x.Id == userId)
-            .Select(x => new { x.IsActive, x.TokenVersion, x.Role, x.OrganizationId })
-            .SingleOrDefaultAsync(context.HttpContext.RequestAborted);
-
-        if (user is null || !user.IsActive || user.TokenVersion != version ||
-            user.Role != principal!.FindFirst("role")?.Value ||
-            user.OrganizationId != principal.FindFirst(StaffContext.TenantClaim)?.Value)
+        if (context.Principal is null || !await IsCurrentAsync(db, context.Principal, context.HttpContext.RequestAborted))
         {
             context.Fail("token revoked");
         }
+    }
+
+    /// <summary>
+    /// Токен всё ещё действителен по БД. Используется и для долгих соединений (live-поток), где проверка
+    /// при подключении недостаточна: отключённый сотрудник теряет поток при следующей перепроверке.
+    /// </summary>
+    public static async Task<bool> IsCurrentAsync(ClubOsDbContext db, ClaimsPrincipal principal, CancellationToken ct)
+    {
+        var userId = principal.FindFirst("sub")?.Value;
+        var tokenVersion = principal.FindFirst(StaffContext.TokenVersionClaim)?.Value;
+        if (userId is null || tokenVersion is null ||
+            !int.TryParse(tokenVersion, NumberStyles.Integer, CultureInfo.InvariantCulture, out var version))
+        {
+            return false;
+        }
+
+        var user = await db.Users.AsNoTracking()
+            .Where(x => x.Id == userId)
+            .Select(x => new { x.IsActive, x.TokenVersion, x.Role, x.OrganizationId })
+            .SingleOrDefaultAsync(ct);
+
+        return user is not null && user.IsActive && user.TokenVersion == version &&
+               user.Role == principal.FindFirst("role")?.Value &&
+               user.OrganizationId == principal.FindFirst(StaffContext.TenantClaim)?.Value;
     }
 }

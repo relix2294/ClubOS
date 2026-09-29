@@ -21,6 +21,7 @@ Tenant берётся только из JWT. Чужие объекты возв�
 | GET | `/api/v1/devices/{deviceId}/sessions` | последние 20 сессий |
 | POST | `/api/v1/devices/{deviceId}/sessions` | запрос старта; тело необязательно: `{durationMinutes?: 1..1440}` — лимит времени (без него — открытая сессия, оплата по факту). **202**, `state=Created`; `Active` и `plannedEndAtUtc` приходят по событию от Edge. **409**, если открытая сессия уже есть; **400** — лимит вне диапазона |
 | POST | `/api/v1/sessions/{sessionId}/end` | запрос завершения (идемпотентно): **202**, или **200** если уже завершена/запрошена |
+| GET | `/api/v1/live` | `devices.view`: поток Server-Sent Events. События: `ready`; `change` с `{topic, locationId, deviceId, id}`, где topic — `devices`/`commands`/`sessions`/`audit`/`edges`/`staff` (аудит — только с `audit.view`, персонал — только с `staff.manage`); `resync` — клиент отстал, перечитать всё; `ping` раз в 15 с; `reauth` — токен истёк или доступ отозван, поток закрывается. Только tenant сотрудника. Admin Web подключается через BFF `/api/live` |
 | POST | `/api/v1/sessions/{sessionId}/extend` | `{minutes: 1..720}` — продление сессии с лимитом (суммарно не больше 24 ч). **202**; новое `plannedEndAtUtc` приходит событием `SessionExtended` от Edge. **409** — сессия не идёт или без лимита |
 | GET | `/api/v1/audit?locationId=&target=device:{id}&limit=` | журнал аудита (новые сверху) |
 | POST | `/api/v1/enrollment-tokens/device` | `enrollment.manage`. `{locationId, zoneId, displayName, simulated}` → одноразовый токен (24 ч) |

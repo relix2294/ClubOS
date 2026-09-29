@@ -311,3 +311,15 @@ export function calculateMinorUnits(pricePerHourMinorUnits: number, elapsedMs: n
   const minutes = Math.ceil(totalSeconds / 60);
   return Math.floor((minutes * pricePerHourMinorUnits) / 60);
 }
+
+// ---- Live-обновления Admin Web (SSE /api/v1/live, DEVIATIONS D-008) ----
+
+export type LiveTopic = "devices" | "commands" | "sessions" | "audit" | "edges" | "staff";
+
+/** Подсказка «изменилось»: данные клиент перечитывает через REST. */
+export interface LiveEvent {
+  topic: LiveTopic;
+  locationId: string | null;
+  deviceId: string | null;
+  id: string | null;
+}

@@ -14,6 +14,7 @@ export default function AuditPage() {
     (s) => apiGet<AuditEventView[]>(`audit?locationId=${encodeURIComponent(location.locationId)}&limit=200`, s),
     5000,
     [location.locationId],
+    { topics: ["audit"], locationId: location.locationId },
   );
 
   return (
