@@ -103,6 +103,8 @@ jobs:
           Start-Sleep -Seconds 20
           if ($p.HasExited) { throw "ClubOS.Agent.Service (Enforced) завершился с кодом $($p.ExitCode)" }
           Stop-Process -Id $p.Id -Force
+          # Раннер завершает pwsh-шаг с $LASTEXITCODE; последним был намеренно неверный PIN (код 1).
+          exit 0
       - name: Unit tests on Windows (SQLite store, DPAPI, agent core)
         run: dotnet test tests/unit/ClubOS.Unit.Tests.csproj -c Release
       - name: Publish Edge Controller + edge-cli (self-contained)
