@@ -32,6 +32,7 @@ public sealed class AgentRuntime(
     {
         // Player Shell стартует до enrollment: незарегистрированный ПК в режиме Enforced тоже закрыт экраном клуба.
         var shellLoop = shell.RunAsync(ct);
+        await EnsureEdgeTrustAsync(ct);
         await EnsureEnrolledAsync(ct);
         logger.LogInformation("Агент {DeviceId} ({Name}) запущен, Edge: {EdgeUrl}", identity.Current!.DeviceId,
             identity.Current.DisplayName, options.EdgeUrl);
@@ -87,6 +88,47 @@ public sealed class AgentRuntime(
     private DeviceStatus CurrentStatus() =>
         presenter.IsLocked ? DeviceStatus.Locked : shell.InMaintenance ? DeviceStatus.Maintenance : DeviceStatus.Idle;
 
+    /// <summary>
+    /// HTTPS к Edge без закреплённого CA (первая регистрация или агент M0 после перехода на HTTPS): CA берётся
+    /// у Edge и сверяется с <see cref="AgentOptions.EdgeCaFingerprint"/> (D-007).
+    /// </summary>
+    public async Task EnsureEdgeTrustAsync(CancellationToken ct)
+    {
+        var url = new Uri(options.EdgeUrl.TrimEnd('/') + "/");
+        var delay = TimeSpan.FromSeconds(2);
+        while (url.Scheme == Uri.UriSchemeHttps && identity.TrustedCaPem is null)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (string.IsNullOrWhiteSpace(options.EdgeCaFingerprint))
+            {
+                logger.LogError("EdgeUrl по HTTPS, но CA не закреплён: задайте Agent:EdgeCaFingerprint (Admin Web → Подключение).");
+                await SafeDelay(TimeSpan.FromSeconds(30), ct);
+                continue;
+            }
+
+            try
+            {
+                var ca = await EdgeTls.FetchTrustedCaAsync(url, options.EdgeCaFingerprint, ct);
+                if (identity.Current is { } current)
+                {
+                    identity.Save(current with { CaCertificatePem = ca });
+                }
+                else
+                {
+                    identity.BootstrapCaPem = ca;
+                }
+
+                logger.LogInformation("CA Edge проверен по отпечатку и закреплён");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning("Проверка CA Edge не удалась, повтор через {Delay} с: {Error}", delay.TotalSeconds, ex.Message);
+                await SafeDelay(delay, ct);
+                delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, options.MaxBackoffSeconds));
+            }
+        }
+    }
+
     public async Task EnsureEnrolledAsync(CancellationToken ct)
     {
         var delay = TimeSpan.FromSeconds(2);
@@ -114,7 +156,8 @@ public sealed class AgentRuntime(
                     DeviceId = response.DeviceId,
                     DisplayName = response.DisplayName,
                     CertificatePem = response.DeviceCertificatePem,
-                    CertificateExpiresAtUtc = response.CertificateExpiresAtUtc
+                    CertificateExpiresAtUtc = response.CertificateExpiresAtUtc,
+                    CaCertificatePem = response.CaCertificatePem ?? identity.BootstrapCaPem
                 });
                 logger.LogInformation("Устройство зарегистрировано: {DeviceId}", response.DeviceId);
             }

@@ -11,6 +11,9 @@ public sealed record AgentIdentity
     public required string DisplayName { get; init; }
     public required string CertificatePem { get; init; }
     public required DateTimeOffset CertificateExpiresAtUtc { get; init; }
+
+    /// <summary>Закреплённый при регистрации CA: TLS Edge принимается только от него (D-007).</summary>
+    public string? CaCertificatePem { get; init; }
 }
 
 /// <summary>
@@ -39,6 +42,12 @@ public sealed class AgentIdentityStore
     }
 
     public AgentIdentity? Current { get; private set; }
+
+    /// <summary>CA, проверенный по отпечатку до регистрации (в памяти; после регистрации — в identity).</summary>
+    public string? BootstrapCaPem { get; set; }
+
+    /// <summary>CA, которому доверяет TLS-клиент агента.</summary>
+    public string? TrustedCaPem => Current?.CaCertificatePem ?? BootstrapCaPem;
 
     public DeviceKey Key => _key ?? throw new InvalidOperationException("Устройство ещё не зарегистрировано.");
 

@@ -18,6 +18,12 @@ param(
     [Parameter(Mandatory = $true)] [string] $CloudUrl,
     [string] $EnrollmentToken,
     [int] $AgentPort = 7070,
+    # HTTPS для агентов (D-007): сертификат выпускает CA Cloud после регистрации Edge.
+    [int] $AgentTlsPort = 7443,
+    # Доп. имена/IP сервера для TLS-сертификата через запятую (IP сетевых карт добавляются сами).
+    [string] $TlsHostNames = '',
+    # Закрыть открытый HTTP-порт агентов — после перевода всех ПК на https://…:7443.
+    [switch] $DisableAgentHttp,
     [string] $SourceDir = $PSScriptRoot,
     [string] $InstallDir = "$env:ProgramFiles\ClubOS\Edge"
 )
@@ -58,7 +64,13 @@ if (-not $identityExists -and [string]::IsNullOrWhiteSpace($EnrollmentToken)) {
     throw 'Edge ещё не зарегистрирован: укажите -EnrollmentToken (Admin Web → Подключение → Токен для Edge).'
 }
 
-$edge = @{ CloudUrl = $CloudUrl.TrimEnd('/'); AgentApiPort = $AgentPort }
+$edge = @{
+    CloudUrl = $CloudUrl.TrimEnd('/')
+    AgentApiPort = $AgentPort
+    AgentTlsPort = $AgentTlsPort
+    AgentHttpEnabled = -not $DisableAgentHttp
+    TlsHostNames = $TlsHostNames
+}
 if (-not $identityExists) { $edge.EnrollmentToken = $EnrollmentToken }
 @{ Edge = $edge } | ConvertTo-Json | Set-Content -Path (Join-Path $DataDir 'edge.json') -Encoding UTF8
 
@@ -70,15 +82,16 @@ if (-not (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)) {
 else {
     & sc.exe config $ServiceName binPath= $binPath start= auto | Out-Null
 }
-& sc.exe description $ServiceName 'ClubOS Edge Controller (M0): локальный контроллер клуба, offline-сессии, связь агентов с Cloud.' | Out-Null
+& sc.exe description $ServiceName 'ClubOS Edge Controller: локальный контроллер клуба, offline-сессии, связь агентов с Cloud.' | Out-Null
 & sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/5000/restart/30000 | Out-Null
 if (-not [System.Diagnostics.EventLog]::SourceExists($ServiceName)) {
     [System.Diagnostics.EventLog]::CreateEventSource($ServiceName, 'Application')
 }
 
-Write-Host "==> Firewall: входящий TCP $AgentPort (агенты в LAN клуба)"
+$ports = @($AgentTlsPort) + $(if ($DisableAgentHttp) { @() } else { @($AgentPort) })
+Write-Host "==> Firewall: входящий TCP $($ports -join ', ') (агенты в LAN клуба)"
 Get-NetFirewallRule -DisplayName $FirewallRule -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-New-NetFirewallRule -DisplayName $FirewallRule -Direction Inbound -Protocol TCP -LocalPort $AgentPort `
+New-NetFirewallRule -DisplayName $FirewallRule -Direction Inbound -Protocol TCP -LocalPort $ports `
     -Action Allow -Profile Domain, Private -Program (Join-Path $InstallDir 'ClubOS.EdgeController.exe') | Out-Null
 
 Write-Host "==> Запуск"
@@ -87,7 +100,7 @@ Start-Service -Name $ServiceName
 $health = $null
 for ($i = 0; $i -lt 20 -and -not $health; $i++) {
     Start-Sleep -Seconds 2
-    try { $health = Invoke-RestMethod -Uri "http://localhost:$AgentPort/health" -TimeoutSec 3 } catch { }
+    try { $health = Invoke-RestMethod -Uri "http://localhost:7071/health" -TimeoutSec 3 } catch { }
 }
 
 Get-Service -Name $ServiceName | Format-Table -AutoSize Name, Status, StartType
@@ -98,8 +111,9 @@ if ($health) {
     }
 }
 else {
-    Write-Warning "Edge не ответил на http://localhost:$AgentPort/health — смотрите Event Viewer (источник ClubOSEdge)."
+    Write-Warning "Edge не ответил на http://localhost:7071/health — смотрите Event Viewer (источник ClubOSEdge)."
 }
 
-Write-Host "Готово. Агенты подключаются к http://<IP этого сервера>:$AgentPort"
+Write-Host "Готово. Агенты подключаются к https://<IP этого сервера>:$AgentTlsPort (отпечаток CA — Admin Web → Подключение)"
+if (-not $DisableAgentHttp) { Write-Host "Открытый HTTP для старых агентов: http://<IP>:$AgentPort — закройте -DisableAgentHttp после перевода ПК на HTTPS." }
 Write-Host "Локальное управление (от администратора): & '$InstallDir\edge-cli.exe' status"

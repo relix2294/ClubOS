@@ -7,5 +7,11 @@ public sealed class PkiOptions
 
     public int CertificateDays { get; set; } = 90;
 
+    /// <summary>
+    /// Отклонять запросы Edge без подписи тела (D-007). Edge M1 подписывает всегда; false — только если в клубах
+    /// остались Edge версии M0 (обновляйте Edge раньше Cloud).
+    /// </summary>
+    public bool RequireEdgeRequestBinding { get; set; } = true;
+
     public TimeSpan CertificateValidity => TimeSpan.FromDays(Math.Clamp(CertificateDays, 1, 397));
 }

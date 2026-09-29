@@ -36,10 +36,13 @@ Set-ExecutionPolicy -Scope Process Bypass
 - создаёт `C:\ProgramData\ClubOS\Edge` с доступом только для SYSTEM и Administrators.
   Там лежат `edge.db` (SQLite WAL), identity, ключ Edge под DPAPI, токен локального API и `edge.json`;
 - регистрирует службу `ClubOSEdge` (LocalSystem, автозапуск, перезапуск при сбое) и источник Event Log;
-- открывает входящий TCP 7070 для программы Edge, только в профилях Domain и Private;
+- открывает входящие TCP 7443 (HTTPS) и 7070 (переходный HTTP) для программы Edge, только в профилях Domain и Private;
 - запускает службу и показывает `/health`. Ожидается `enrolled: True`, `cloudReachable: True`.
 
-Другой порт для агентов задаётся параметром `-AgentPort 7080`. Тогда на ПК: `-EdgeUrl http://<IP>:7080`.
+После регистрации Edge получает от Cloud TLS-сертификат для API агентов (DEVIATIONS D-007). В сертификат попадают
+`localhost`, имя компьютера и все активные IPv4-адреса; продлевается он автоматически и при смене IP.
+Дополнительные имена (например DNS-имя сервера): `-TlsHostNames edge.club.local,10.0.0.5`.
+Порты: `-AgentTlsPort 7443`, `-AgentPort 7070`. Когда все ПК переведены на HTTPS, закройте HTTP: `-DisableAgentHttp`.
 
 ## 3. Проверка
 
@@ -47,7 +50,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 |---|----------|----------|
 | 1 | `Get-Service ClubOSEdge` | `Running`, `Automatic` |
 | 2 | Admin Web → Устройства | «Edge Controller … Edge на связи» |
-| 3 | С игрового ПК: `Test-NetConnection <IP сервера> -Port 7070` | `TcpTestSucceeded : True` |
+| 3 | С игрового ПК: `Test-NetConnection <IP сервера> -Port 7443` | `TcpTestSucceeded : True` |
+| 3a | Admin Web → Подключение → «Отпечаток CA»; на ПК `install-agent.ps1 -EdgeUrl https://<IP>:7443 -EdgeCaFingerprint …` | ПК «В сети»; с неверным отпечатком агент не подключается |
 | 4 | `& 'C:\Program Files\ClubOS\Edge\edge-cli.exe' status` (PowerShell от администратора) | `enrolled: true`, `cloudReachable: true`, `pendingOutboxEvents: 0` |
 | 5 | Выдернуть интернет (LAN оставить): `edge-cli start <ПК> --actor admin` | сессия началась, `cloudReachable: false`, outbox растёт |
 | 6 | `Restart-Service ClubOSEdge`, затем `edge-cli sessions --active` | активная сессия на месте |

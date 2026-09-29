@@ -11,7 +11,8 @@ namespace ClubOS.Security;
 /// Короткоживущий подписанный токен запроса (компактный JWS, ES256).
 /// Edge и Agent подписывают каждый запрос своим приватным ключом; сервер проверяет подпись
 /// по сертификату, выданному dev CA. Заголовок: <c>Authorization: ClubOS-Sig &lt;token&gt;</c>.
-/// Защищает от подделки идентичности и повторов (jti), но не шифрует канал — см. DEVIATIONS D-007.
+/// Защищает от подделки идентичности и повторов (jti). С привязкой к запросу (<see cref="RequestBinding"/>:
+/// метод, путь, SHA-256 тела) подпись защищает и содержимое запроса от подмены на канале (D-007).
 /// </summary>
 public static class SignedToken
 {
@@ -23,12 +24,13 @@ public static class SignedToken
     internal static readonly TimeSpan MaxLifetime = TimeSpan.FromMinutes(5);
     internal static readonly TimeSpan ClockSkew = TimeSpan.FromSeconds(60);
 
-    public static string Create(string subjectId, ECDsa key, string audience, TimeProvider time)
+    public static string Create(string subjectId, ECDsa key, string audience, TimeProvider time,
+        RequestBinding? binding = null)
     {
         var now = time.GetUtcNow().ToUnixTimeSeconds();
         var header = new TokenHeader("ES256", "JWT", subjectId);
         var payload = new TokenPayload(subjectId, audience, now, now + (long)Lifetime.TotalSeconds,
-            Guid.NewGuid().ToString("N"));
+            Guid.NewGuid().ToString("N"), binding?.Method, binding?.PathAndQuery, binding?.BodyHash);
 
         var signingInput = Base64Url(JsonSerializer.SerializeToUtf8Bytes(header, TokenJson.Default.TokenHeader)) + "." +
                            Base64Url(JsonSerializer.SerializeToUtf8Bytes(payload, TokenJson.Default.TokenPayload));
@@ -95,7 +97,10 @@ public sealed class SignedTokenValidator
         _lastPurge = time.GetUtcNow();
     }
 
-    public TokenValidationResult Validate(string token, string certificatePem, string expectedAudience, string expectedRole)
+    /// <param name="binding">Фактический запрос. Если токен привязан к запросу, привязка обязана совпасть.</param>
+    /// <param name="requireBinding">Отклонять токены без привязки (после обновления всех клиентов).</param>
+    public TokenValidationResult Validate(string token, string certificatePem, string expectedAudience, string expectedRole,
+        RequestBinding? binding = null, bool requireBinding = false)
     {
         var parts = token.Split('.');
         if (parts.Length != 3)
@@ -142,6 +147,19 @@ public sealed class SignedTokenValidator
         if (payload.Sub != header.Kid || payload.Aud != expectedAudience)
         {
             return TokenValidationResult.Fail("wrong subject or audience");
+        }
+
+        var bound = payload.Htm is not null || payload.Htu is not null || payload.Bh is not null;
+        if (!bound && requireBinding)
+        {
+            return TokenValidationResult.Fail("request binding required");
+        }
+
+        if (bound && (binding is null || payload.Htm != binding.Method || payload.Htu != binding.PathAndQuery ||
+                      !CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(payload.Bh ?? string.Empty),
+                          Encoding.ASCII.GetBytes(binding.BodyHash))))
+        {
+            return TokenValidationResult.Fail("request does not match signature");
         }
 
         var issuedAt = DateTimeOffset.FromUnixTimeSeconds(payload.Iat);
@@ -234,7 +252,22 @@ internal sealed record TokenPayload(
     [property: JsonPropertyName("aud")] string Aud,
     [property: JsonPropertyName("iat")] long Iat,
     [property: JsonPropertyName("exp")] long Exp,
-    [property: JsonPropertyName("jti")] string Jti);
+    [property: JsonPropertyName("jti")] string Jti,
+    [property: JsonPropertyName("htm"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Htm = null,
+    [property: JsonPropertyName("htu"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Htu = null,
+    [property: JsonPropertyName("bh"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Bh = null);
+
+/// <summary>
+/// Привязка подписи к конкретному запросу: метод, путь с query и SHA-256 тела (base64url).
+/// Изменение любого из них на канале делает подпись недействительной.
+/// </summary>
+public sealed record RequestBinding(string Method, string PathAndQuery, string BodyHash)
+{
+    public const int MaxBodyBytes = 1024 * 1024;
+
+    public static RequestBinding For(string method, string pathAndQuery, ReadOnlySpan<byte> body) =>
+        new(method.ToUpperInvariant(), pathAndQuery, SignedToken.Base64Url(SHA256.HashData(body)));
+}
 
 [JsonSerializable(typeof(TokenHeader))]
 [JsonSerializable(typeof(TokenPayload))]

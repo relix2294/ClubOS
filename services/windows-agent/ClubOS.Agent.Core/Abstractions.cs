@@ -10,6 +10,12 @@ public sealed class AgentOptions
     /// <summary>URL Edge Controller в LAN клуба, напр. http://edge.local:7070.</summary>
     public string EdgeUrl { get; set; } = "http://localhost:7070";
 
+    /// <summary>
+    /// SHA-256 отпечаток dev CA (Admin Web → Подключение) для первого подключения к Edge по HTTPS, пока CA ещё
+    /// не закреплён при регистрации. Без него агент не доверяет TLS-сертификату Edge (D-007).
+    /// </summary>
+    public string? EdgeCaFingerprint { get; set; }
+
     /// <summary>Одноразовый enrollment-токен (нужен только до первой регистрации).</summary>
     public string? EnrollmentToken { get; set; }
 

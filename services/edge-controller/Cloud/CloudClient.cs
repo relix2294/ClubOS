@@ -57,6 +57,10 @@ public sealed class CloudClient(HttpClient http, EdgeIdentityStore identity, Tim
     public Task ReportStatusAsync(EdgeStatusReport report, CancellationToken ct) =>
         SendAsync<object>(HttpMethod.Post, "api/v1/edge/status", report, ct);
 
+    public Task<CertificateRenewResponse> IssueServerCertificateAsync(EdgeServerCertificateRequest request,
+        CancellationToken ct) =>
+        SendAsync<CertificateRenewResponse>(HttpMethod.Post, "api/v1/edge/server-certificate", request, ct);
+
     public Task<CertificateRenewResponse> RenewEdgeAsync(CertificateRenewRequest request, CancellationToken ct) =>
         SendAsync<CertificateRenewResponse>(HttpMethod.Post, "api/v1/edge/renew", request, ct);
 
@@ -70,13 +74,9 @@ public sealed class CloudClient(HttpClient http, EdgeIdentityStore identity, Tim
     private async Task<T> SendAsync<T>(HttpMethod method, string path, object? body, CancellationToken ct)
     {
         var current = identity.Current ?? throw new InvalidOperationException("Edge не зарегистрирован в Cloud.");
-        using var request = new HttpRequestMessage(method, path);
-        request.Headers.Authorization = new AuthenticationHeaderValue(SignedToken.Scheme,
-            SignedToken.Create(current.EdgeId, identity.Key.Key, SignedToken.AudienceCloud, time));
-        if (body is not null)
-        {
-            request.Content = JsonContent.Create(body, body.GetType(), options: ContractJson.Options);
-        }
+        using var request = SignedRequest.Create(method, http.BaseAddress, path,
+            body is null ? null : JsonSerializer.SerializeToUtf8Bytes(body, body.GetType(), ContractJson.Options),
+            current.EdgeId, identity.Key.Key, SignedToken.AudienceCloud, time);
 
         using var response = await http.SendAsync(request, ct);
         await EnsureSuccess(response, ct);

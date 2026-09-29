@@ -37,13 +37,9 @@ public sealed class EdgeClient(HttpClient http, AgentIdentityStore identity, Tim
     private async Task<T> SendAsync<T>(HttpMethod method, string path, object? body, CancellationToken ct)
     {
         var id = identity.Current ?? throw new InvalidOperationException("Устройство не зарегистрировано.");
-        using var request = new HttpRequestMessage(method, path);
-        request.Headers.Authorization = new AuthenticationHeaderValue(SignedToken.Scheme,
-            SignedToken.Create(id.DeviceId, identity.Key.Key, SignedToken.AudienceEdge, time));
-        if (body is not null)
-        {
-            request.Content = JsonContent.Create(body, body.GetType(), options: ContractJson.Options);
-        }
+        using var request = SignedRequest.Create(method, http.BaseAddress, path,
+            body is null ? null : System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(body, body.GetType(), ContractJson.Options),
+            id.DeviceId, identity.Key.Key, SignedToken.AudienceEdge, time);
 
         using var response = await http.SendAsync(request, ct);
         await EnsureSuccess(response, ct);

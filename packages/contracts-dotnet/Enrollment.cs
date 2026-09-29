@@ -50,4 +50,7 @@ public sealed record DeviceEnrollResponse
     public required string DisplayName { get; init; }
     public required string ZoneId { get; init; }
     public required bool Simulated { get; init; }
+
+    /// <summary>Сертификат dev CA: агент закрепляет его и дальше доверяет TLS Edge только от этого CA (D-007).</summary>
+    public string? CaCertificatePem { get; init; }
 }

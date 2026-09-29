@@ -26,14 +26,25 @@ public class EdgeProtocolTests(CloudFixture cloud)
         return new RawEdge(enrolled.Str("edgeId"), enrolled.Str("tenantId"), enrolled.Str("locationId"), key);
     }
 
+    private static byte[]? Json(object? body) =>
+        body is null ? null : System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(body, body.GetType(), ContractJson.Options);
+
+    /// <summary>Токен, привязанный к запросу (метод, путь, SHA-256 тела) — как подписывает настоящий Edge.</summary>
+    private static string Token(RawEdge edge, HttpMethod method, string url, object? body = null, DeviceKey? key = null) =>
+        SignedToken.Create(edge.EdgeId, (key ?? edge.Key).Key, SignedToken.AudienceCloud, TimeProvider.System,
+            RequestBinding.For(method.Method, url, Json(body) ?? []));
+
     private HttpRequestMessage Signed(RawEdge edge, HttpMethod method, string url, object? body = null, string? token = null)
     {
-        var request = new HttpRequestMessage(method, url)
+        var bytes = Json(body);
+        var request = new HttpRequestMessage(method, url);
+        if (bytes is not null)
         {
-            Content = body is null ? null : JsonContent.Create(body, options: ContractJson.Options)
-        };
-        request.Headers.Authorization = new AuthenticationHeaderValue(SignedToken.Scheme,
-            token ?? SignedToken.Create(edge.EdgeId, edge.Key.Key, SignedToken.AudienceCloud, TimeProvider.System));
+            request.Content = new ByteArrayContent(bytes);
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        }
+
+        request.Headers.Authorization = new AuthenticationHeaderValue(SignedToken.Scheme, token ?? Token(edge, method, url, body));
         return request;
     }
 
@@ -42,7 +53,7 @@ public class EdgeProtocolTests(CloudFixture cloud)
     {
         var edge = await EnrollRawEdgeAsync(await cloud.CreateLocationAsync());
         var client = cloud.Anonymous();
-        var token = SignedToken.Create(edge.EdgeId, edge.Key.Key, SignedToken.AudienceCloud, TimeProvider.System);
+        var token = Token(edge, HttpMethod.Get, "/api/v1/edge/config");
 
         var ok = await client.SendAsync(Signed(edge, HttpMethod.Get, "/api/v1/edge/config", token: token));
         Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
@@ -52,9 +63,36 @@ public class EdgeProtocolTests(CloudFixture cloud)
         Assert.Equal(HttpStatusCode.Unauthorized, replay.StatusCode);
 
         using var otherKey = DeviceKey.Generate();
-        var forged = SignedToken.Create(edge.EdgeId, otherKey.Key, SignedToken.AudienceCloud, TimeProvider.System);
+        var forged = Token(edge, HttpMethod.Get, "/api/v1/edge/config", key: otherKey);
         Assert.Equal(HttpStatusCode.Unauthorized,
             (await client.SendAsync(Signed(edge, HttpMethod.Get, "/api/v1/edge/config", token: forged))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Signature_covers_body_path_and_method()
+    {
+        var edge = await EnrollRawEdgeAsync(await cloud.CreateLocationAsync());
+        var client = cloud.Anonymous();
+        var report = new EdgeStatusReport { EdgeClockUtc = DateTimeOffset.UtcNow, PendingOutboxEvents = 0, Devices = [] };
+
+        // Тело подменено на канале: подпись от другого тела.
+        var tampered = Signed(edge, HttpMethod.Post, "/api/v1/edge/status", report with { PendingOutboxEvents = 999 },
+            token: Token(edge, HttpMethod.Post, "/api/v1/edge/status", report));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(tampered)).StatusCode);
+
+        // Токен от другого пути.
+        var otherPath = Signed(edge, HttpMethod.Get, "/api/v1/edge/config",
+            token: Token(edge, HttpMethod.Get, "/api/v1/edge/commands?waitSeconds=0"));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(otherPath)).StatusCode);
+
+        // Токен без привязки (старый Edge M0) — Cloud требует подпись тела.
+        var unbound = Signed(edge, HttpMethod.Get, "/api/v1/edge/config",
+            token: SignedToken.Create(edge.EdgeId, edge.Key.Key, SignedToken.AudienceCloud, TimeProvider.System));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.SendAsync(unbound)).StatusCode);
+
+        // Честный запрос проходит.
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await client.SendAsync(Signed(edge, HttpMethod.Post, "/api/v1/edge/status", report))).StatusCode);
     }
 
     [Fact]

@@ -26,6 +26,7 @@ const ALLOWED = [
   /^zones\/[\w-]+$/,
   /^devices\/[\w-]+\/revoke$/,
   /^edges\/[\w-]+\/revoke$/,
+  /^pki\/ca$/,
   /^me\/mfa(\/(setup|recovery-codes))?$/,
 ];
 // Смена своего пароля идёт через /api/auth/password (BFF обновляет cookie).

@@ -33,6 +33,8 @@ param(
     [ValidateSet('Off', 'Hud', 'Enforced')] [string] $ShellMode,
     [SecureString] $TechnicianPin,
     [switch] $ReEnroll,
+    # Отпечаток CA из Admin Web → Подключение: нужен для EdgeUrl https://… (D-007).
+    [string] $EdgeCaFingerprint,
     [string] $SourceDir = $PSScriptRoot,
     [string] $InstallDir = "$env:ProgramFiles\ClubOS\Agent"
 )
@@ -80,8 +82,9 @@ if (-not $identityExists -and [string]::IsNullOrWhiteSpace($EnrollmentToken)) {
 
 $configPath = Join-Path $DataDir 'agent.json'
 $previousShell = $null
+$previousAgent = $null
 if (Test-Path $configPath) {
-    try { $previousShell = (Get-Content $configPath -Raw | ConvertFrom-Json).Agent.Shell } catch { $previousShell = $null }
+    try { $previousAgent = (Get-Content $configPath -Raw | ConvertFrom-Json).Agent; $previousShell = $previousAgent.Shell } catch { $previousShell = $null }
 }
 
 # Player Shell: при переустановке без параметров сохраняются прежние режим и хэш PIN.
@@ -105,6 +108,11 @@ if ($shell.Mode -eq 'Enforced' -and -not $shell.TechnicianPinHash) {
 }
 
 $agent = @{ EdgeUrl = $EdgeUrl; Shell = $shell }
+if ($EdgeCaFingerprint) { $agent.EdgeCaFingerprint = ($EdgeCaFingerprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant() }
+elseif ($previousAgent -and $previousAgent.EdgeCaFingerprint) { $agent.EdgeCaFingerprint = [string]$previousAgent.EdgeCaFingerprint }
+if ($EdgeUrl.StartsWith('https://') -and -not $agent.EdgeCaFingerprint -and -not $identityExists) {
+    throw 'Для EdgeUrl https:// укажите -EdgeCaFingerprint (Admin Web → Подключение → «Отпечаток CA»).'
+}
 if (-not $identityExists) { $agent.EnrollmentToken = $EnrollmentToken }
 @{ Agent = $agent } | ConvertTo-Json -Depth 5 | Set-Content -Path $configPath -Encoding UTF8
 

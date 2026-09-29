@@ -64,7 +64,9 @@ builder.Services.AddHttpClient<EdgeClient>((sp, http) =>
 {
     http.BaseAddress = new Uri(sp.GetRequiredService<AgentOptions>().EdgeUrl.TrimEnd('/') + "/");
     http.Timeout = TimeSpan.FromSeconds(40);
-});
+}).ConfigurePrimaryHttpMessageHandler(sp => EdgeTls.CreateHandler(sp.GetRequiredService<AgentOptions>(),
+    sp.GetRequiredService<AgentIdentityStore>(), sp.GetRequiredService<TimeProvider>(),
+    sp.GetRequiredService<ILoggerFactory>().CreateLogger("EdgeTls")));
 builder.Services.AddSingleton<CommandExecutor>();
 builder.Services.AddSingleton<PlayerShellController>();
 builder.Services.AddSingleton(sp => ActivatorUtilities.CreateInstance<AgentRuntime>(sp,

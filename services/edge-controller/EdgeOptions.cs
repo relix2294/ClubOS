@@ -16,6 +16,21 @@ public sealed class EdgeOptions
     /// <summary>Порт API для агентов в LAN клуба.</summary>
     public int AgentApiPort { get; set; } = 7070;
 
+    /// <summary>
+    /// HTTPS-порт API агентов (D-007); 0 — выключить. Сертификат выпускает CA Cloud после регистрации Edge,
+    /// агенты доверяют только этому CA.
+    /// </summary>
+    public int AgentTlsPort { get; set; } = 7443;
+
+    /// <summary>
+    /// Открытый HTTP-порт API агентов (<see cref="AgentApiPort"/>). Оставлен на время перевода ПК на HTTPS;
+    /// после перевода всех агентов выключите (false), тогда LAN-трафик Edge↔Agent только в TLS.
+    /// </summary>
+    public bool AgentHttpEnabled { get; set; } = true;
+
+    /// <summary>Дополнительные имена/IP Edge для TLS-сертификата через запятую (DNS-имя сервера клуба, внешний IP).</summary>
+    public string TlsHostNames { get; set; } = string.Empty;
+
     /// <summary>Порт локального admin API (только loopback) для edge-cli.</summary>
     public int LocalApiPort { get; set; } = 7071;
 
@@ -32,6 +47,12 @@ public sealed class EdgeOptions
     public int ConfigRefreshSeconds { get; set; } = 60;
     public int CommandLongPollSeconds { get; set; } = 20;
     public int MaxBackoffSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// Отклонять запросы агентов без подписи тела (D-007). false на время обновления агентов старых версий;
+    /// подписанный запрос проверяется всегда.
+    /// </summary>
+    public bool RequireAgentRequestBinding { get; set; }
 
     /// <summary>За сколько дней до истечения Edge продлевает свой сертификат (D-011).</summary>
     public int CertificateRenewBeforeDays { get; set; } = 30;

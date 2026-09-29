@@ -21,6 +21,13 @@ public static class RevocationEndpoints
             .RequirePermission(Permissions.EnrollmentManage);
         app.MapPost("/api/v1/edges/{edgeId}/revoke", RevokeEdge).WithTags("Edge")
             .RequirePermission(Permissions.EnrollmentManage);
+
+        // Отпечаток dev CA для установки агента с TLS (D-007): install-agent.ps1 -EdgeCaFingerprint.
+        app.MapGet("/api/v1/pki/ca", (ClubOS.Security.DevCertificateAuthority ca) => Results.Ok(new
+        {
+            fingerprintSha256 = ca.FingerprintSha256,
+            expiresAtUtc = new DateTimeOffset(ca.Certificate.NotAfter.ToUniversalTime())
+        })).WithTags("Edge").RequirePermission(Permissions.EnrollmentManage);
     }
 
     private static async Task<IResult> RevokeDevice(string deviceId, HttpContext http, LocationScope scope,

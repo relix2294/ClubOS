@@ -18,6 +18,11 @@ public static class AgentEndpoints
         group.MapGet("/commands", Commands);
         group.MapPost("/commands/{commandId}/result", Result);
         group.MapPost("/renew", Renew);
+
+        // Публичный сертификат dev CA — агент сверяет его с отпечатком из Admin Web перед первой регистрацией (D-007).
+        group.MapGet("/ca", (EdgeIdentityStore identity) => identity.Current is null
+            ? Results.Problem(statusCode: 503, title: "Edge не зарегистрирован в Cloud.")
+            : Results.Ok(new { caCertificatePem = identity.Current.CaCertificatePem }));
     }
 
     /// <summary>

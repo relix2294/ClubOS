@@ -18,10 +18,24 @@ public sealed class EdgeAuthenticationHandler(
     ILoggerFactory logger,
     UrlEncoder encoder,
     ClubOsDbContext db,
-    CloudTokenValidator validator)
+    CloudTokenValidator validator,
+    IOptions<PkiOptions> pki)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     public const string SchemeName = "EdgeSignature";
+
+    /// <summary>Тело читается до обработчика (буферизация) — подпись Edge покрывает его SHA-256 (D-007).</summary>
+    private async Task<RequestBinding> ReadBindingAsync()
+    {
+        Request.EnableBuffering();
+        using var buffer = new MemoryStream();
+        await Request.Body.CopyToAsync(buffer, Context.RequestAborted);
+        Request.Body.Position = 0;
+        var raw = Context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpRequestFeature>()?.RawTarget;
+        return RequestBinding.For(Request.Method,
+            RequestTarget.From(raw, Request.PathBase, Request.Path, Request.QueryString.Value ?? string.Empty),
+            buffer.ToArray());
+    }
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
@@ -50,7 +64,7 @@ public sealed class EdgeAuthenticationHandler(
         }
 
         var result = validator.Validator.Validate(token, edge.CertificatePem, SignedToken.AudienceCloud,
-            DevCertificateAuthority.RoleEdge);
+            DevCertificateAuthority.RoleEdge, await ReadBindingAsync(), pki.Value.RequireEdgeRequestBinding);
         if (!result.Success)
         {
             Logger.LogWarning("Edge {EdgeId} auth rejected: {Reason}", edgeId, result.Error);

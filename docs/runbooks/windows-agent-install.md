@@ -10,7 +10,8 @@ Device Simulator'ом. CI гарантирует только компиляци
 | Windows 10 22H2 / Windows 11, x64, права администратора | ПК клуба или тестовый ПК |
 | .NET 10 **Desktop Runtime** x64 — только для обычного пакета. Самодостаточному пакету runtime не нужен | https://dotnet.microsoft.com/download/dotnet/10.0 |
 | Работающий стек ClubOS | Cloud на VPS ([vps-deploy.md](vps-deploy.md)) + Edge на сервере клуба ([edge-windows-install.md](edge-windows-install.md)); для разработки — `docker compose up -d` (README) |
-| Сетевой доступ ПК → Edge, TCP **7070** | Edge слушает `0.0.0.0:7070`; `install-edge.ps1` открывает порт в firewall сервера |
+| Сетевой доступ ПК → Edge, TCP **7443** (HTTPS) | Edge слушает `0.0.0.0:7443` (и переходный HTTP 7070); `install-edge.ps1` открывает порты в firewall сервера |
+| Отпечаток CA | Admin Web → **Подключение** → «Отпечаток CA для HTTPS» (кнопка копирует готовую команду) |
 | Пакет агента | артефакт CI `clubos-windows-agent-selfcontained` (рекомендуется для теста: ничего не нужно ставить), `clubos-windows-agent` (требует Desktop Runtime) **или** сборка ниже |
 
 ### Сборка пакета (на любой машине с .NET 10 SDK)
@@ -37,8 +38,16 @@ PowerShell **от имени администратора**, в каталоге
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-.\install-agent.ps1 -EdgeUrl http://<IP-машины-с-Edge>:7070 -EnrollmentToken <токен>
+.\install-agent.ps1 -EdgeUrl https://<IP-машины-с-Edge>:7443 -EdgeCaFingerprint <отпечаток> -EnrollmentToken <токен>
 ```
+
+Канал к Edge зашифрован (DEVIATIONS D-007). Агент доверяет только CA с указанным отпечатком, системное
+хранилище сертификатов не используется. При первом запуске агент получает CA с Edge, сверяет отпечаток и
+сохраняет CA вместе с сертификатом устройства. Адрес в `-EdgeUrl` должен входить в сертификат Edge: IP сервера
+определяется автоматически, DNS-имя добавляют через `install-edge.ps1 -TlsHostNames`. Если отпечаток не совпал
+или имени нет в сертификате, агент не подключается и пишет причину в Event Log.
+Старый вариант `-EdgeUrl http://<IP>:7070` без отпечатка работает, пока на Edge не включён `-DisableAgentHttp`.
+Переустановка без `-EdgeCaFingerprint` сохраняет прежний отпечаток.
 
 Скрипт делает следующее:
 - копирует файлы в `C:\Program Files\ClubOS\Agent`;
@@ -58,7 +67,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 | `Enforced` | свободный ПК закрыт экраном клуба («Компьютер свободен, обратитесь к администратору»). Во время сессии открыт рабочий стол с индикатором. По окончании сессии снова экран клуба с итогом («Время 1:00:00 · К оплате 120,00 TJS») |
 
 ```powershell
-.\install-agent.ps1 -EdgeUrl http://<IP-Edge>:7070 -EnrollmentToken <токен> `
+.\install-agent.ps1 -EdgeUrl https://<IP-Edge>:7443 -EdgeCaFingerprint <отпечаток> -EnrollmentToken <токен> `
   -ShellMode Enforced -TechnicianPin (Read-Host -AsSecureString 'PIN техника (6–12 цифр)')
 ```
 
@@ -117,7 +126,7 @@ Set-ExecutionPolicy -Scope Process Bypass
   `"C:\Program Files\ClubOS\Agent\ClubOS.Agent.Service.exe"` от администратора. Логи пойдут в консоль.
 - **«Enrollment отклонён»:** токен истёк или уже использован. Создайте новый, обновите `agent.json`
   (`Agent:EnrollmentToken`) и перезапустите службу.
-- **Нет связи с Edge:** `Test-NetConnection <IP> -Port 7070`.
+- **Нет связи с Edge:** `Test-NetConnection <IP> -Port 7443`. В Event Log `ClubOSAgent` причина отказа TLS: «отпечаток CA не совпадает» — проверьте `-EdgeCaFingerprint`; «имя не совпадает» — добавьте адрес в `-TlsHostNames` на Edge.
 - **«Edge не принимает это устройство (401)» в журнале:** ПК удалён в Admin Web или Edge переустановлен.
   Создайте новый токен и выполните `.\install-agent.ps1 -EdgeUrl ... -EnrollmentToken <токен> -ReEnroll`.
   Если ПК не удаляли, проверьте время на ПК: синхронизация времени Windows должна быть включена.

@@ -67,6 +67,18 @@
 - **Риск:** злоумышленник в LAN клуба может читать и модифицировать трафик Edge↔Agent.
 - **Когда исправить:** пилот — Cloud API только за TLS: сделано, `infrastructure/vps` (Caddy + Let's Encrypt);
   M1 — TLS или mTLS Edge↔Agent и подпись тела.
+- **Статус (M1):** сделано:
+  - **подпись запроса:** токен `ClubOS-Sig` Edge→Cloud и Agent→Edge содержит метод (`htm`), путь с query (`htu`)
+    и SHA-256 тела (`bh`). Подмена тела, пути или метода отклоняется (401). Cloud требует привязку по умолчанию
+    (`Pki:RequireEdgeRequestBinding`); Edge — по флагу `Edge:RequireAgentRequestBinding`, пока в клубе есть старые агенты;
+  - **TLS для API агентов:** Edge получает от Cloud серверный сертификат dev CA (`POST /api/v1/edge/server-certificate`,
+    SAN — имена и IP сервера, продление вместе с остальными) и слушает HTTPS на 7443. Агент доверяет только CA
+    с отпечатком из Admin Web (`-EdgeCaFingerprint`, раздел «Подключение ПК»), а не системному хранилищу; CA
+    сохраняется при enrollment. Имя хоста в URL должно совпадать с SAN;
+  - HTTP 7070 оставлен на переходный период; `install-edge.ps1 -DisableAgentHttp` его закрывает.
+
+  **Осталось (M2):** mTLS (сейчас клиент аутентифицируется подписью запроса, а не сертификатом в рукопожатии),
+  отказ от HTTP 7070 по умолчанию, промышленный PKI (D-002).
 
 ### D-008 · Near-realtime в Admin Web через polling, а не SignalR
 

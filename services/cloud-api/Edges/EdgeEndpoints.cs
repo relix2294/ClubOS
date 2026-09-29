@@ -30,6 +30,7 @@ public static class EdgeEndpoints
         edge.MapPost("/status", ReportStatus);
         edge.MapPost("/devices/enroll", EnrollDevice).RequireRateLimiting(RateLimits.Auth);
         edge.MapPost("/renew", RenewEdge);
+        edge.MapPost("/server-certificate", IssueServerCertificate);
         edge.MapPost("/devices/{deviceId}/renew", RenewDevice);
     }
 
@@ -113,6 +114,50 @@ public static class EdgeEndpoints
                 CertificatePem = d.CertificatePem
             }).ToList(),
             RevokedDeviceIds = all.Where(x => x.RevokedAtUtc is not null).Select(x => x.Id).ToList()
+        });
+    }
+
+    /// <summary>TLS-сертификат API агентов для Edge (D-007): SAN — имена и адреса Edge в LAN клуба.</summary>
+    private static async Task<IResult> IssueServerCertificate(EdgeServerCertificateRequest request, HttpContext http,
+        DevCertificateAuthority ca, IOptions<PkiOptions> pki, AuditWriter audit, ClubOsDbContext db, CancellationToken ct)
+    {
+        var edge = EdgeContext.From(http.User);
+        var dns = (request.DnsNames ?? []).Select(x => x.Trim().ToLowerInvariant()).Where(x => x.Length > 0).Distinct().ToList();
+        if (dns.Any(x => x.Length > 253 || !System.Text.RegularExpressions.Regex.IsMatch(x,
+                @"^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))*$")))
+        {
+            return Problems.Validation("invalid_dns", "Недопустимое DNS-имя в SAN (без звёздочек и спецсимволов).");
+        }
+
+        var ips = new List<System.Net.IPAddress>();
+        foreach (var raw in request.IpAddresses ?? [])
+        {
+            if (!System.Net.IPAddress.TryParse(raw, out var ip))
+            {
+                return Problems.Validation("invalid_ip", $"Недопустимый IP-адрес: {raw}.");
+            }
+
+            ips.Add(ip);
+        }
+
+        IssuedCertificate cert;
+        try
+        {
+            cert = ca.IssueServer(request.CertificateSigningRequestPem, edge.EdgeId, dns, ips.Distinct().ToList(),
+                pki.Value.CertificateValidity);
+        }
+        catch (InvalidCsrException ex)
+        {
+            return Problems.Validation("invalid_csr", ex.Message);
+        }
+
+        audit.Write(edge.TenantId, edge.LocationId, edge.Actor, "edge.tls_certificate_issued", $"edge:{edge.EdgeId}",
+            AuditResults.Success, details: new { dns, ips = ips.Select(x => x.ToString()), cert.ExpiresAtUtc });
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(new CertificateRenewResponse
+        {
+            CertificatePem = cert.CertificatePem,
+            CertificateExpiresAtUtc = cert.ExpiresAtUtc
         });
     }
 
@@ -345,7 +390,8 @@ public static class EdgeEndpoints
             CertificateExpiresAtUtc = cert.ExpiresAtUtc,
             DisplayName = token.DisplayName,
             ZoneId = token.ZoneId,
-            Simulated = token.Simulated
+            Simulated = token.Simulated,
+            CaCertificatePem = ca.Certificate.ExportCertificatePem()
         });
     }
 

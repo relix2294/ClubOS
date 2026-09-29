@@ -129,6 +129,17 @@ public sealed record CertificateRenewRequest
     public required string CertificateSigningRequestPem { get; init; }
 }
 
+/// <summary>
+/// Серверный TLS-сертификат API агентов (D-007). Edge сообщает имена и адреса, по которым к нему обращаются ПК
+/// клуба; CA выпускает сертификат с этими SAN и CN = edgeId. Ключ TLS остаётся на Edge.
+/// </summary>
+public sealed record EdgeServerCertificateRequest
+{
+    public required string CertificateSigningRequestPem { get; init; }
+    public required IReadOnlyList<string> DnsNames { get; init; }
+    public required IReadOnlyList<string> IpAddresses { get; init; }
+}
+
 public sealed record CertificateRenewResponse
 {
     public required string CertificatePem { get; init; }

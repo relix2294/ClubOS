@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type { EnrollmentTokenResponse } from "@clubos/contracts";
 import { useShell } from "@/components/AppShell";
 import { Button, Card, Field, inputClass } from "@/components/ui";
-import { apiPost } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
 
@@ -20,7 +20,48 @@ export default function EnrollmentPage() {
         <EdgeTokenForm locationId={location.locationId} timezone={location.timezone} disabled={!isOwner} />
         <DeviceTokenForm disabled={!isOwner} />
       </div>
+      {isOwner && <CaFingerprint />}
     </div>
+  );
+}
+
+/** Отпечаток dev CA для установки агента по HTTPS (D-007): агент доверяет Edge только от этого CA. */
+function CaFingerprint() {
+  const [fingerprint, setFingerprint] = useState<string>();
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    apiGet<{ fingerprintSha256: string }>("pki/ca", controller.signal)
+      .then((x) => setFingerprint(x.fingerprintSha256))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
+  if (!fingerprint) return null;
+  const command = `.\\install-agent.ps1 -EdgeUrl https://<IP сервера Edge>:7443 -EdgeCaFingerprint ${fingerprint} -EnrollmentToken <токен>`;
+
+  return (
+    <Card title={t.enrollment.caTitle}>
+      <div className="flex flex-col gap-3 text-sm" data-testid="ca-fingerprint">
+        <p className="text-slate-600">{t.enrollment.caHint}</p>
+        <code className="block rounded bg-slate-50 p-2 font-mono text-xs break-all">{fingerprint}</code>
+        <p className="text-slate-600">{t.enrollment.caCommand}</p>
+        <code className="block rounded bg-slate-50 p-2 font-mono text-xs break-all">{command}</code>
+        <div>
+          <Button
+            variant="secondary"
+            className="py-1"
+            onClick={async () => {
+              await navigator.clipboard.writeText(command);
+              setCopied(true);
+            }}
+          >
+            {copied ? t.mfa.copied : t.enrollment.copy}
+          </Button>
+        </div>
+      </div>
+    </Card>
   );
 }
 

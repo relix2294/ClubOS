@@ -4,7 +4,8 @@
 #   docker compose --profile simulator up -d device-simulator   # 5 SIMULATED ПК
 #
 # Admin Web: http://localhost:3000 · Cloud API/Swagger: http://localhost:5080/swagger · Edge (агенты): :7070
-# Реальный Windows Agent подключается к Edge по http://<IP этой машины>:7070 — см. docs/runbooks/windows-agent-install.md
+# Реальный Windows Agent подключается к Edge по https://<IP этой машины>:7443 (задайте CLUBOS_EDGE_TLS_HOSTNAMES=<IP>)
+# или по http://<IP>:7070 — см. docs/runbooks/windows-agent-install.md
 
 name: clubos
 
@@ -64,10 +65,13 @@ services:
     environment:
       CLUBOS_Edge__CloudUrl: http://cloud-api:8080
       CLUBOS_Edge__EnrollmentToken: ${CLUBOS_DEV_EDGE_ENROLLMENT_TOKEN:-}
+      # Имена для TLS-сертификата API агентов: имя сервиса в compose + IP этой машины для ПК из LAN (через запятую).
+      CLUBOS_Edge__TlsHostNames: edge-controller,${CLUBOS_EDGE_TLS_HOSTNAMES:-}
     volumes:
       - edgedata:/data/edge
     ports:
       - "7070:7070"
+      - "7443:7443"
 
   admin-web:
     build:
@@ -89,7 +93,8 @@ services:
     depends_on:
       - edge-controller
     environment:
-      CLUBOS_SIM_EDGE_URL: http://edge-controller:7070
+      # HTTPS с проверкой dev CA по отпечатку (отпечаток симулятор берёт из Cloud, как администратор в Admin Web).
+      CLUBOS_SIM_EDGE_URL: https://edge-controller:7443
       CLUBOS_SIM_CLOUD_URL: http://cloud-api:8080
       CLUBOS_SIM_EMAIL: ${CLUBOS_SEED_OWNER_EMAIL:-owner@demo.clubos.local}
       CLUBOS_SIM_PASSWORD: ${CLUBOS_SEED_OWNER_PASSWORD}

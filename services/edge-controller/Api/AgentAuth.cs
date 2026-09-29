@@ -8,7 +8,8 @@ namespace ClubOS.EdgeController.Api;
 /// Проверка подписанных токенов агентов: сертификат устройства выдан dev CA (из identity Edge),
 /// CN = deviceId, подпись/срок/jti. Валидатор живёт весь процесс — кэш jti против повторов.
 /// </summary>
-public sealed class AgentAuth(EdgeIdentityStore identity, EdgeStore store, TimeProvider time, ILogger<AgentAuth> logger)
+public sealed class AgentAuth(EdgeIdentityStore identity, EdgeStore store, TimeProvider time,
+    Microsoft.Extensions.Options.IOptions<EdgeOptions> options, ILogger<AgentAuth> logger)
 {
     private readonly Lock _gate = new();
     private SignedTokenValidator? _validator;
@@ -35,7 +36,7 @@ public sealed class AgentAuth(EdgeIdentityStore identity, EdgeStore store, TimeP
         }
 
         var result = Validator().Validate(token, device.CertificatePem, SignedToken.AudienceEdge,
-            DevCertificateAuthority.RoleDevice);
+            DevCertificateAuthority.RoleDevice, SignedBody.Binding(http), options.Value.RequireAgentRequestBinding);
         if (!result.Success)
         {
             logger.LogWarning("Agent {DeviceId} auth rejected: {Reason}", deviceId, result.Error);

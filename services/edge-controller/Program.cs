@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Server.Kestrel.Https;
+using System.Net.Security;
 using System.Text.Json.Serialization;
 using ClubOS.EdgeController;
 using ClubOS.EdgeController.Api;
@@ -46,7 +48,25 @@ if (builder.Configuration["ASPNETCORE_URLS"] is null && builder.Configuration["u
 {
     builder.WebHost.ConfigureKestrel(k =>
     {
-        k.ListenAnyIP(edgeOptions.AgentApiPort);
+        if (edgeOptions.AgentHttpEnabled)
+        {
+            k.ListenAnyIP(edgeOptions.AgentApiPort);
+        }
+
+        if (edgeOptions.AgentTlsPort > 0)
+        {
+            // Сертификат берётся на каждое рукопожатие: после выпуска/продления перезапуск не нужен.
+            k.ListenAnyIP(edgeOptions.AgentTlsPort, listen => listen.UseHttps(new TlsHandshakeCallbackOptions
+            {
+                OnConnection = _ =>
+                {
+                    var context = k.ApplicationServices.GetRequiredService<EdgeTlsCertificateStore>().ServerContext
+                                  ?? throw new InvalidOperationException("TLS-сертификат Edge ещё не выпущен.");
+                    return ValueTask.FromResult(new SslServerAuthenticationOptions { ServerCertificateContext = context });
+                }
+            }));
+        }
+
         k.ListenLocalhost(edgeOptions.LocalApiPort);
     });
 }
@@ -55,6 +75,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(sp => new EdgeDatabase(sp.GetRequiredService<IOptions<EdgeOptions>>().Value.DataPath));
 builder.Services.AddSingleton(sp => new EdgeIdentityStore(sp.GetRequiredService<IOptions<EdgeOptions>>().Value.DataPath));
 builder.Services.AddSingleton<EdgeSignals>();
+builder.Services.AddSingleton(sp => new EdgeTlsCertificateStore(sp.GetRequiredService<IOptions<EdgeOptions>>().Value.DataPath));
 builder.Services.AddSingleton<EdgeStore>();
 builder.Services.AddSingleton<AgentAuth>();
 builder.Services.AddSingleton<LocalAdminToken>();
@@ -75,6 +96,8 @@ builder.Services.AddHostedService<CommandPuller>();
 builder.Services.AddHostedService<StatusWorker>();
 builder.Services.AddHostedService<SessionTimerWorker>();
 builder.Services.AddSingleton<CertificateRenewalWorker>();
+builder.Services.AddSingleton<EdgeTlsWorker>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<EdgeTlsWorker>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<CertificateRenewalWorker>());
 
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
@@ -96,6 +119,7 @@ app.MapGet("/health", (EdgeIdentityStore identity, EdgeStore store, CloudClient 
     pendingOutboxEvents = store.CountPendingEvents()
 }));
 
+app.UseSignedBodyCapture("/agent/v1");
 app.MapAgentEndpoints();
 app.MapLocalEndpoints();
 

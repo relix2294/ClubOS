@@ -25,8 +25,42 @@ Console.CancelKeyPress += (_, e) =>
 };
 
 var time = TimeProvider.System;
-using var edgeHttp = new HttpClient { BaseAddress = new Uri(opts.EdgeUrl.TrimEnd('/') + "/"), Timeout = TimeSpan.FromSeconds(40) };
+// HTTPS к Edge (D-007): как настоящий агент — CA проверяется по отпечатку и закрепляется. Отпечаток: env
+// CLUBOS_SIM_EDGE_CA_FINGERPRINT или из Cloud (/api/v1/pki/ca), как администратор видит его в Admin Web.
 string? cloudToken = null;
+string? edgeCa = null;
+var edgeUri = new Uri(opts.EdgeUrl.TrimEnd('/') + "/");
+var fingerprint = Environment.GetEnvironmentVariable("CLUBOS_SIM_EDGE_CA_FINGERPRINT");
+if (edgeUri.Scheme == Uri.UriSchemeHttps)
+{
+    for (var attempt = 1; edgeCa is null; attempt++)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(fingerprint))
+            {
+                cloudToken ??= await LoginAsync(opts, cts.Token);
+                using var cloudHttp = new HttpClient { BaseAddress = new Uri(opts.CloudUrl.TrimEnd('/') + "/") };
+                cloudHttp.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", cloudToken);
+                fingerprint = (await cloudHttp.GetFromJsonAsync<JsonElement>("api/v1/pki/ca", cts.Token)).GetProperty("fingerprintSha256").GetString();
+            }
+
+            edgeCa = await EdgeTls.FetchTrustedCaAsync(edgeUri, fingerprint!, cts.Token);
+            log.LogInformation("CA Edge проверен по отпечатку {Fingerprint}", fingerprint![..16] + "…");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException && attempt < 60)
+        {
+            log.LogWarning("TLS Edge ещё не готов ({Error}), повтор через 3 с", ex.Message);
+            await Task.Delay(TimeSpan.FromSeconds(3), cts.Token);
+        }
+    }
+}
+
+using var edgeHttp = new HttpClient(EdgeTls.CreateHandler(() => edgeCa, fingerprint, TimeProvider.System, log))
+{
+    BaseAddress = edgeUri,
+    Timeout = TimeSpan.FromSeconds(40)
+};
 var devices = new List<SimDevice>();
 
 for (var i = 1; i <= opts.Count; i++)
@@ -53,6 +87,8 @@ for (var i = 1; i <= opts.Count; i++)
     var agentOptions = new AgentOptions
     {
         EdgeUrl = opts.EdgeUrl,
+        // Каждый ПК закрепляет CA сам, как настоящий агент (EnsureEdgeTrustAsync).
+        EdgeCaFingerprint = fingerprint,
         EnrollmentToken = enrollmentToken,
         DataPath = dataPath,
         HeartbeatSeconds = 10,

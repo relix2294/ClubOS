@@ -23,6 +23,7 @@ Tenant берётся только из JWT. Чужие объекты возв�
 | POST | `/api/v1/sessions/{sessionId}/end` | запрос завершения (идемпотентно): **202**, или **200** если уже завершена/запрошена |
 | POST | `/api/v1/devices/{deviceId}/revoke` | `enrollment.manage`: удалить (отозвать) устройство. **409**, если идёт сессия. Edge получает `RevokeDevice`, история сохраняется |
 | POST | `/api/v1/edges/{edgeId}/revoke` | `enrollment.manage`: отключить Edge. Его запросы получают **401**; для локации нужен новый Edge |
+| GET | `/api/v1/pki/ca` | `enrollment.manage`: `{fingerprintSha256, expiresAtUtc}` — отпечаток CA организации для `install-agent.ps1 -EdgeCaFingerprint` |
 | GET | `/api/v1/live` | `devices.view`: поток Server-Sent Events. События: `ready`; `change` с `{topic, locationId, deviceId, id}`, где topic — `devices`/`commands`/`sessions`/`audit`/`edges`/`staff` (аудит — только с `audit.view`, персонал — только с `staff.manage`); `resync` — клиент отстал, перечитать всё; `ping` раз в 15 с; `reauth` — токен истёк или доступ отозван, поток закрывается. Только tenant сотрудника. Admin Web подключается через BFF `/api/live` |
 | POST | `/api/v1/sessions/{sessionId}/extend` | `{minutes: 1..720}` — продление сессии с лимитом (суммарно не больше 24 ч). **202**; новое `plannedEndAtUtc` приходит событием `SessionExtended` от Edge. **409** — сессия не идёт или без лимита |
 | GET | `/api/v1/audit?locationId=&target=device:{id}&limit=` | журнал аудита (новые сверху) |
@@ -81,6 +82,10 @@ Rate limit на `/auth/*` и enrollment: `RateLimits:AuthPerMinute` (по умо
 
 ## Cloud API: Edge (`Authorization: ClubOS-Sig <JWS>`)
 
+Токен `ClubOS-Sig` (ES256, 60 с, одноразовый `jti`) подписан ключом Edge и привязан к запросу:
+`htm` — метод, `htu` — путь с query, `bh` — base64url(SHA-256 тела), тело до 1 МБ. Несовпадение → 401.
+Cloud принимает только привязанные токены (`Pki:RequireEdgeRequestBinding=true`). Клиенты: `SignedRequest.Create`.
+
 | Метод | Путь | Назначение |
 |-------|------|-----------|
 | POST | `/api/v1/edge/enroll` | анонимно: `{enrollmentToken, certificateSigningRequestPem}` → edgeId, сертификат, CA |
@@ -92,6 +97,7 @@ Rate limit на `/auth/*` и enrollment: `RateLimits:AuthPerMinute` (по умо
 | POST | `/api/v1/edge/devices/enroll` | пересылка enrollment агента (токен привязан к локации Edge) |
 | POST | `/api/v1/edge/renew` | `{certificateSigningRequestPem}` → новый сертификат Edge (тот же ключ) |
 | POST | `/api/v1/edge/devices/{deviceId}/renew` | продление сертификата устройства своей локации (агент → Edge → Cloud) |
+| POST | `/api/v1/edge/server-certificate` | `{certificateSigningRequestPem, dnsNames, ipAddresses}` → TLS-сертификат Edge (serverAuth, SAN ≤ 16 имён и 16 IP), аудит `edge.tls_certificate_issued` |
 
 Типы событий sync: `SessionStarted` (с `plannedEndAtUtc` для сессии с лимитом), `SessionStartRejected`,
 `SessionExtended`, `SessionEnded` (с `reason`: `staff` / `timeLimit`), `CommandStateChanged`,
@@ -102,11 +108,17 @@ Rate limit на `/auth/*` и enrollment: `RateLimits:AuthPerMinute` (по умо
 Время окончания всегда равно плановому, даже если Edge был выключен, поэтому клиент не платит за лишнее время.
 Если сотрудник завершает сессию позже планового окончания, время окончания тоже ограничивается плановым.
 
-## Edge: API агентов (порт 7070, `Authorization: ClubOS-Sig <JWS>` ключом устройства)
+## Edge: API агентов (HTTPS 7443 и HTTP 7070, `Authorization: ClubOS-Sig <JWS>` ключом устройства)
+
+HTTPS 7443: сертификат Edge выпускает dev CA организации (Edge запрашивает его после регистрации и продлевает
+заранее). Агент доверяет только CA с отпечатком SHA-256 из Admin Web (`GET /api/v1/pki/ca`). HTTP 7070 — переходный,
+закрывается `Edge:AgentHttpEnabled=false`. Токен привязан к методу, пути и телу, как у Edge→Cloud;
+обязательность привязки на Edge — `Edge:RequireAgentRequestBinding`.
 
 | Метод | Путь | Назначение |
 |-------|------|-----------|
-| POST | `/agent/v1/enroll` | анонимно: `DeviceEnrollRequest` → `DeviceEnrollResponse` (через Cloud) |
+| GET | `/agent/v1/ca` | анонимно: `{caCertificatePem}` — CA организации для первичной проверки по отпечатку (503 до регистрации Edge) |
+| POST | `/agent/v1/enroll` | анонимно: `DeviceEnrollRequest` → `DeviceEnrollResponse` (через Cloud; в ответе и `caCertificatePem`) |
 | POST | `/agent/v1/heartbeat` | `HeartbeatMessage` каждые 10 с (статус агента `Idle` / `Locked` / `Maintenance`); инвентаризация примерно раз в 5 мин. В ответе тот же `state` |
 | GET | `/agent/v1/commands?waitSeconds=0..25&sessionStamp=` | long-poll команд устройства (повторная выдача Delivered возможна, агент дедуплицирует). В ответе `state` (`AgentDeviceState`): имя ПК и клуба, часы Edge, активная сессия, итог последней. Если `sessionStamp` агента устарел (старт, продление, завершение), ответ приходит сразу |
 | POST | `/agent/v1/renew` | `{certificateSigningRequestPem}` → новый сертификат устройства; нужна связь Edge с Cloud (иначе **503**, агент повторит) |
