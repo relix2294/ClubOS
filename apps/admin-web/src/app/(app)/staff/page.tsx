@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import type { StaffMemberView, StaffRole, TemporaryPasswordResponse } from "@clubos/contracts";
 import { useShell } from "@/components/AppShell";
+import { LocationAccessPicker, type LocationAccessValue } from "@/components/LocationAccessPicker";
 import { Button, Card, EmptyState, ErrorState, Field, Loading, inputClass } from "@/components/ui";
 import { apiGet, apiPost } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
@@ -56,6 +57,7 @@ export default function StaffPage() {
                   <th className="py-2 pr-4">{t.staff.name}</th>
                   <th className="py-2 pr-4">{t.staff.role}</th>
                   <th className="py-2 pr-4">{t.staff.status}</th>
+                  <th className="py-2 pr-4">{t.staff.locations}</th>
                   <th className="py-2 pr-4">{t.staff.lastLogin}</th>
                   <th className="py-2" />
                 </tr>
@@ -94,6 +96,9 @@ export default function StaffPage() {
                             {t.staff.mfaOn} ✓
                           </div>
                         )}
+                      </td>
+                      <td className="py-2 pr-4">
+                        <StaffLocations member={u} onSaved={staff.refresh} />
                       </td>
                       <td className="py-2 pr-4 whitespace-nowrap text-slate-600">{formatDateTime(u.lastLoginAtUtc, location.timezone)}</td>
                       <td className="py-2">
@@ -147,6 +152,8 @@ export default function StaffPage() {
 }
 
 function CreateForm({ onCreated }: { onCreated: (result: TemporaryPasswordResponse) => void }) {
+  const { me } = useShell();
+  const [access, setAccess] = useState<LocationAccessValue>({ all: true, ids: [] });
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState<StaffRole>("Operator");
@@ -158,7 +165,8 @@ function CreateForm({ onCreated }: { onCreated: (result: TemporaryPasswordRespon
     setBusy(true);
     setError(undefined);
     try {
-      onCreated(await apiPost<TemporaryPasswordResponse>("staff", { email, displayName, role }));
+      const locationIds = role === "Owner" || access.all ? null : access.ids;
+      onCreated(await apiPost<TemporaryPasswordResponse>("staff", { email, displayName, role, locationIds }));
       setEmail("");
       setDisplayName("");
     } catch (err) {
@@ -191,6 +199,11 @@ function CreateForm({ onCreated }: { onCreated: (result: TemporaryPasswordRespon
         </Button>
       </form>
       <p className="mt-3 text-xs text-slate-500">{t.staff.roles[role]}</p>
+      {role !== "Owner" && me.locations.length > 1 && (
+        <div className="mt-3">
+          <LocationAccessPicker locations={me.locations} value={access} onChange={setAccess} idPrefix="create" />
+        </div>
+      )}
       {error && (
         <p role="alert" className="mt-3 text-sm text-red-700">
           {error}
@@ -211,6 +224,71 @@ function TemporaryPassword({ result, onClose }: { result: TemporaryPasswordRespo
       <Button variant="secondary" className="mt-2 py-1" onClick={onClose}>
         OK
       </Button>
+    </div>
+  );
+}
+
+/** Локации сотрудника: «Все» или названия; владелец меняет доступ на месте. */
+function StaffLocations({ member, onSaved }: { member: StaffMemberView; onSaved: () => void }) {
+  const { me } = useShell();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState<LocationAccessValue>({ all: member.allLocations, ids: member.locationIds });
+  const [error, setError] = useState<string>();
+  const names = member.allLocations
+    ? t.staff.allLocations
+    : member.locationIds.map((id) => me.locations.find((l) => l.locationId === id)?.name ?? id).join(", ");
+
+  if (member.role === "Owner" || me.locations.length < 2) {
+    return <span className="text-slate-600">{names}</span>;
+  }
+
+  if (!editing) {
+    return (
+      <div className="flex flex-col items-start gap-1">
+        <span className="text-slate-600" data-testid="staff-locations">
+          {names}
+        </span>
+        <button
+          type="button"
+          className="text-xs text-brand-700 underline"
+          onClick={() => {
+            setValue({ all: member.allLocations, ids: member.locationIds });
+            setEditing(true);
+          }}
+        >
+          {t.staff.changeLocations}
+        </button>
+      </div>
+    );
+  }
+
+  const save = async () => {
+    setError(undefined);
+    try {
+      await apiPost(`staff/${member.userId}/locations`, value.all ? { allLocations: true } : { allLocations: false, locationIds: value.ids });
+      setEditing(false);
+      onSaved();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  return (
+    <div className="flex min-w-48 flex-col gap-2">
+      <LocationAccessPicker locations={me.locations} value={value} onChange={setValue} idPrefix={member.userId} />
+      {error && (
+        <p role="alert" className="text-xs text-red-700">
+          {error}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <Button className="py-1" onClick={save}>
+          {t.staff.saveLocations}
+        </Button>
+        <Button variant="secondary" className="py-1" onClick={() => setEditing(false)}>
+          {t.mfa.cancel}
+        </Button>
+      </div>
     </div>
   );
 }

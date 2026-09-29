@@ -162,6 +162,6 @@ public static class MfaEndpoints
         await tokens.RevokeAllAsync(user, ct);
         audit.Write(me.TenantId, null, me.Actor, "staff.mfa_reset", $"user:{user.Id}", AuditResults.Success);
         await db.SaveChangesAsync(ct);
-        return Results.Ok(user.ToStaffView());
+        return Results.Ok(await StaffManagementEndpoints.ViewAsync(db, user, ct));
     }
 }

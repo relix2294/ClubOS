@@ -35,6 +35,8 @@ builder.Services.AddSingleton<SigningKeyProvider>();
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddScoped<MfaService>();
+builder.Services.AddScoped<LocationScope>();
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<AuditWriter>();
 builder.Services.AddScoped<SyncIngestor>();
 builder.Services.AddSingleton<CommandExpiryService>();
@@ -172,6 +174,7 @@ app.MapStaffManagementEndpoints();
 app.MapEdgeEndpoints();
 app.MapLiveEndpoints();
 app.MapMfaEndpoints();
+app.MapLocationEndpoints();
 
 await app.RunAsync();
 return 0;

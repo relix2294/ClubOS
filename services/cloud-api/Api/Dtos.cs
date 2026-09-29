@@ -58,9 +58,15 @@ public sealed record StaffMemberView(
     bool MustChangePassword,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? LastLoginAtUtc,
-    bool MfaEnabled);
+    bool MfaEnabled,
+    bool AllLocations,
+    IReadOnlyList<string> LocationIds);
 
-public sealed record CreateStaffRequest(string Email, string DisplayName, string Role);
+/// <param name="LocationIds">null — доступ ко всем локациям; список — только к ним (кроме Owner).</param>
+public sealed record CreateStaffRequest(string Email, string DisplayName, string Role, IReadOnlyList<string>? LocationIds = null);
+
+/// <summary>Доступ сотрудника к локациям: все (в т.ч. будущие) или список.</summary>
+public sealed record StaffLocationsRequest(bool AllLocations, IReadOnlyList<string>? LocationIds);
 
 /// <summary>Результат создания сотрудника или сброса пароля: временный пароль показывается один раз.</summary>
 public sealed record TemporaryPasswordResponse(StaffMemberView User, string TemporaryPassword);
@@ -150,3 +156,9 @@ public sealed record AuditEventView(
     JsonElement? Details);
 
 public sealed record EdgeEnrollmentTokenRequest(string LocationId, string Name);
+
+// ---- Локации, зоны и тарифы (locations.manage) ----
+
+public sealed record ZoneInput(string Name, long PricePerHourMinorUnits);
+
+public sealed record CreateLocationRequest(string Name, string Timezone, string Currency, IReadOnlyList<ZoneInput> Zones);

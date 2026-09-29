@@ -44,6 +44,7 @@ public static class LiveEndpoints
     {
         using var subscription = broker.Subscribe(staff.TenantId);
         var nextRevalidation = time.GetUtcNow() + RevalidateEvery;
+        var access = await LoadAccessAsync(scopes, staff, ct);
         yield return new SseItem<string>("{}", "ready") { ReconnectionInterval = TimeSpan.FromSeconds(3) };
 
         while (!ct.IsCancellationRequested)
@@ -63,7 +64,7 @@ public static class LiveEndpoints
             {
                 while (subscription.Reader.TryRead(out var evt))
                 {
-                    if (Allowed(staff.Role, evt))
+                    if (Allowed(staff.Role, access, evt))
                     {
                         yield return new SseItem<string>(JsonSerializer.Serialize(evt), "change");
                     }
@@ -89,17 +90,31 @@ public static class LiveEndpoints
                     yield return new SseItem<string>("""{"reason":"revoked"}""", "reauth");
                     yield break;
                 }
+
+                access = await LoadAccessAsync(scopes, staff, ct); // доступ к локациям мог измениться
             }
         }
     }
 
-    /// <summary>Подсказки об аудите и персонале — только тем, кто может их читать.</summary>
-    public static bool Allowed(string role, LiveEvent evt) => evt.Topic switch
+    /// <summary>
+    /// Подсказки только о доступных локациях (события без локации — только при доступе ко всей организации),
+    /// об аудите и персонале — только тем, кто может их читать.
+    /// </summary>
+    public static bool Allowed(string role, LocationAccess access, LiveEvent evt) =>
+        access.Contains(evt.LocationId) && evt.Topic switch
+        {
+            LiveTopics.Audit => Permissions.Has(role, Permissions.AuditView),
+            LiveTopics.Staff => Permissions.Has(role, Permissions.StaffManage),
+            _ => true
+        };
+
+    private static async Task<LocationAccess> LoadAccessAsync(IServiceScopeFactory scopes, StaffContext staff,
+        CancellationToken ct)
     {
-        LiveTopics.Audit => Permissions.Has(role, Permissions.AuditView),
-        LiveTopics.Staff => Permissions.Has(role, Permissions.StaffManage),
-        _ => true
-    };
+        using var scope = scopes.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ClubOsDbContext>();
+        return await LocationScope.LoadAsync(db, staff.UserId, staff.TenantId, ct);
+    }
 
     private static async Task<bool> WaitAsync(Subscription subscription, CancellationToken ct)
     {

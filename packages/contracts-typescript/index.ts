@@ -189,7 +189,8 @@ export type Permission =
   | "sessions.manage"
   | "audit.view"
   | "enrollment.manage"
-  | "staff.manage";
+  | "staff.manage"
+  | "locations.manage";
 
 export interface UserView {
   userId: string;
@@ -218,12 +219,37 @@ export interface StaffMemberView {
   createdAtUtc: string;
   lastLoginAtUtc: string | null;
   mfaEnabled: boolean;
+  /** Доступ ко всем локациям (Owner — всегда). */
+  allLocations: boolean;
+  /** Назначенные локации при ограниченном доступе. */
+  locationIds: string[];
 }
 
 export interface CreateStaffRequest {
   email: string;
   displayName: string;
   role: StaffRole;
+  /** null/нет — все локации. */
+  locationIds?: string[] | null;
+}
+
+export interface StaffLocationsRequest {
+  allLocations: boolean;
+  locationIds?: string[];
+}
+
+// ---- Локации и тарифы (locations.manage) ----
+
+export interface ZoneInput {
+  name: string;
+  pricePerHourMinorUnits: number;
+}
+
+export interface CreateLocationRequest {
+  name: string;
+  timezone: string;
+  currency: string;
+  zones: ZoneInput[];
 }
 
 export interface TemporaryPasswordResponse {

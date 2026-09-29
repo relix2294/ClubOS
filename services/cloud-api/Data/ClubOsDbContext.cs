@@ -11,6 +11,7 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
     public DbSet<User> Users => Set<User>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<MfaRecoveryCode> MfaRecoveryCodes => Set<MfaRecoveryCode>();
+    public DbSet<StaffLocationAccess> StaffLocationAccess => Set<StaffLocationAccess>();
     public DbSet<MfaChallenge> MfaChallenges => Set<MfaChallenge>();
     public DbSet<Edge> Edges => Set<Edge>();
     public DbSet<EnrollmentToken> EnrollmentTokens => Set<EnrollmentToken>();
@@ -62,6 +63,14 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.HasIndex(x => x.TokenHash).IsUnique();
             e.HasIndex(x => x.UserId);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<StaffLocationAccess>(e =>
+        {
+            e.ToTable("staff_location_access");
+            e.HasKey(x => new { x.UserId, x.LocationId });
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<MfaRecoveryCode>(e =>

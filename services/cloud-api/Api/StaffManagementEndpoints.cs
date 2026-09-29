@@ -25,6 +25,7 @@ public static class StaffManagementEndpoints
         staff.MapPost("/{userId}/activate", (string userId, HttpContext http, ClubOsDbContext db, TokenService tokens,
             AuditWriter audit, CancellationToken ct) => SetActive(userId, true, http, db, tokens, audit, ct));
         staff.MapPost("/{userId}/reset-password", ResetPassword);
+        staff.MapPost("/{userId}/locations", SetLocations);
 
         app.MapPost("/api/v1/me/password", ChangeOwnPassword).WithTags("Auth")
             .RequireAuthorization(Policies.Staff).RequireRateLimiting(RateLimits.Auth);
@@ -35,7 +36,10 @@ public static class StaffManagementEndpoints
         var me = StaffContext.From(http.User);
         var users = await db.Users.AsNoTracking().Where(x => x.OrganizationId == me.TenantId)
             .OrderBy(x => x.DisplayName).ToListAsync(ct);
-        return Results.Ok(users.Select(x => x.ToStaffView()).ToList());
+        var userIds = users.Select(x => x.Id).ToList();
+        var access = (await db.StaffLocationAccess.AsNoTracking().Where(x => userIds.Contains(x.UserId)).ToListAsync(ct))
+            .ToLookup(x => x.UserId, x => x.LocationId);
+        return Results.Ok(users.Select(x => x.ToStaffView(access[x.Id].Order().ToList())).ToList());
     }
 
     private static async Task<IResult> Create(CreateStaffRequest request, HttpContext http, ClubOsDbContext db,
@@ -64,6 +68,12 @@ public static class StaffManagementEndpoints
             return Problems.Conflict("email_taken", "Сотрудник с таким email уже существует.");
         }
 
+        var locationIds = request.Role == Roles.Owner ? null : request.LocationIds;
+        if (locationIds is not null && await ValidateLocations(db, me.TenantId, locationIds, ct) is { } locationError)
+        {
+            return Problems.Validation("invalid_locations", locationError);
+        }
+
         var temporary = PasswordPolicy.GenerateTemporary();
         var user = new User
         {
@@ -74,14 +84,20 @@ public static class StaffManagementEndpoints
             PasswordHash = PasswordHasher.Hash(temporary),
             Role = request.Role,
             MustChangePassword = true,
-            CreatedAtUtc = time.GetUtcNow()
+            CreatedAtUtc = time.GetUtcNow(),
+            AllLocations = locationIds is null
         };
         db.Users.Add(user);
+        foreach (var locationId in locationIds?.Distinct() ?? [])
+        {
+            db.StaffLocationAccess.Add(new StaffLocationAccess { UserId = user.Id, LocationId = locationId });
+        }
+
         audit.Write(me.TenantId, null, me.Actor, "staff.created", $"user:{user.Id}", AuditResults.Success,
-            details: new { email, role = user.Role });
+            details: new { email, role = user.Role, allLocations = locationIds is null, locationIds });
         await db.SaveChangesAsync(ct);
 
-        return Results.Created($"/api/v1/staff/{user.Id}", new TemporaryPasswordResponse(user.ToStaffView(), temporary));
+        return Results.Created($"/api/v1/staff/{user.Id}", new TemporaryPasswordResponse(await ViewAsync(db, user, ct), temporary));
     }
 
     private static async Task<IResult> ChangeRole(string userId, ChangeRoleRequest request, HttpContext http,
@@ -101,7 +117,7 @@ public static class StaffManagementEndpoints
 
         if (user.Role == request.Role)
         {
-            return Results.Ok(user.ToStaffView());
+            return Results.Ok(await ViewAsync(db, user, ct));
         }
 
         if (user.Role == Roles.Owner && await IsLastActiveOwner(db, user, ct))
@@ -115,7 +131,7 @@ public static class StaffManagementEndpoints
         audit.Write(me.TenantId, null, me.Actor, "staff.role_changed", $"user:{user.Id}", AuditResults.Success,
             details: new { from = before, to = user.Role });
         await db.SaveChangesAsync(ct);
-        return Results.Ok(user.ToStaffView());
+        return Results.Ok(await ViewAsync(db, user, ct));
     }
 
     private static async Task<IResult> SetActive(string userId, bool active, HttpContext http, ClubOsDbContext db,
@@ -130,7 +146,7 @@ public static class StaffManagementEndpoints
 
         if (user.IsActive == active)
         {
-            return Results.Ok(user.ToStaffView());
+            return Results.Ok(await ViewAsync(db, user, ct));
         }
 
         if (!active && user.Id == me.UserId)
@@ -148,7 +164,7 @@ public static class StaffManagementEndpoints
         audit.Write(me.TenantId, null, me.Actor, active ? "staff.activated" : "staff.deactivated", $"user:{user.Id}",
             AuditResults.Success);
         await db.SaveChangesAsync(ct);
-        return Results.Ok(user.ToStaffView());
+        return Results.Ok(await ViewAsync(db, user, ct));
     }
 
     private static async Task<IResult> ResetPassword(string userId, HttpContext http, ClubOsDbContext db,
@@ -167,7 +183,7 @@ public static class StaffManagementEndpoints
         await tokens.RevokeAllAsync(user, ct);
         audit.Write(me.TenantId, null, me.Actor, "staff.password_reset", $"user:{user.Id}", AuditResults.Success);
         await db.SaveChangesAsync(ct);
-        return Results.Ok(new TemporaryPasswordResponse(user.ToStaffView(), temporary));
+        return Results.Ok(new TemporaryPasswordResponse(await ViewAsync(db, user, ct), temporary));
     }
 
     /// <summary>
@@ -206,6 +222,63 @@ public static class StaffManagementEndpoints
         await db.SaveChangesAsync(ct);
 
         return Results.Ok(await AuthEndpoints.BuildResponse(db, tokens, user, issued, ct));
+    }
+
+    public static async Task<StaffMemberView> ViewAsync(ClubOsDbContext db, User user, CancellationToken ct) =>
+        user.ToStaffView(await db.StaffLocationAccess.AsNoTracking().Where(x => x.UserId == user.Id)
+            .Select(x => x.LocationId).OrderBy(x => x).ToListAsync(ct));
+
+    /// <summary>Проверяет список локаций организации: null — ошибки нет; иначе текст ошибки.</summary>
+    private static async Task<string?> ValidateLocations(ClubOsDbContext db, string tenantId, IReadOnlyList<string> ids,
+        CancellationToken ct)
+    {
+        if (ids.Count == 0)
+        {
+            return "Выберите хотя бы одну локацию или «Все локации».";
+        }
+
+        var distinct = ids.Distinct().ToList();
+        var known = await db.Locations.CountAsync(x => x.OrganizationId == tenantId && distinct.Contains(x.Id), ct);
+        return known == distinct.Count ? null : "Локация не найдена.";
+    }
+
+    private static async Task ReplaceLocations(ClubOsDbContext db, User user, IReadOnlyList<string>? ids, CancellationToken ct)
+    {
+        await db.StaffLocationAccess.Where(x => x.UserId == user.Id).ExecuteDeleteAsync(ct);
+        user.AllLocations = ids is null;
+        foreach (var id in ids?.Distinct() ?? [])
+        {
+            db.StaffLocationAccess.Add(new StaffLocationAccess { UserId = user.Id, LocationId = id });
+        }
+    }
+
+    /// <summary>Доступ сотрудника к локациям. Owner всегда видит все локации. Действует со следующего запроса.</summary>
+    private static async Task<IResult> SetLocations(string userId, StaffLocationsRequest request, HttpContext http,
+        ClubOsDbContext db, AuditWriter audit, CancellationToken ct)
+    {
+        var me = StaffContext.From(http.User);
+        var user = await FindInTenant(db, me, userId, ct);
+        if (user is null)
+        {
+            return Problems.NotFound("Сотрудник");
+        }
+
+        if (user.Role == Roles.Owner)
+        {
+            return Problems.Conflict("owner_all_locations", "Владелец всегда имеет доступ ко всем локациям.");
+        }
+
+        var ids = request.AllLocations ? null : request.LocationIds ?? [];
+        if (ids is not null && await ValidateLocations(db, me.TenantId, ids, ct) is { } error)
+        {
+            return Problems.Validation("invalid_locations", error);
+        }
+
+        await ReplaceLocations(db, user, ids, ct);
+        audit.Write(me.TenantId, null, me.Actor, "staff.locations_changed", $"user:{user.Id}", AuditResults.Success,
+            details: new { allLocations = ids is null, locationIds = ids });
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(await ViewAsync(db, user, ct));
     }
 
     private static Task<User?> FindInTenant(ClubOsDbContext db, StaffContext me, string userId, CancellationToken ct) =>

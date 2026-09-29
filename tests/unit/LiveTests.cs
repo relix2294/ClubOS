@@ -140,6 +140,8 @@ public class LiveBrokerTests
         Assert.Equal(LiveTopics.Audit, evt.Topic);
     }
 
+    private static readonly ClubOS.CloudApi.Auth.LocationAccess Everything = new(true, new HashSet<string> { "loc_1", "loc_2" });
+
     [Theory]
     [InlineData(Roles.Owner, LiveTopics.Staff, true)]
     [InlineData(Roles.Admin, LiveTopics.Staff, false)]
@@ -147,5 +149,16 @@ public class LiveBrokerTests
     [InlineData(Roles.Operator, LiveTopics.Audit, true)]
     [InlineData(Roles.Operator, LiveTopics.Devices, true)]
     public void Hints_respect_permissions(string role, string topic, bool allowed) =>
-        Assert.Equal(allowed, LiveEndpoints.Allowed(role, new LiveEvent(topic, "org_a", "loc_1")));
+        Assert.Equal(allowed, LiveEndpoints.Allowed(role, Everything, new LiveEvent(topic, "org_a", "loc_1")));
+
+    [Fact]
+    public void Hints_respect_location_access()
+    {
+        var onlyFirst = new ClubOS.CloudApi.Auth.LocationAccess(false, new HashSet<string> { "loc_1" });
+        Assert.True(LiveEndpoints.Allowed(Roles.Operator, onlyFirst, new LiveEvent(LiveTopics.Devices, "org_a", "loc_1", "dev_1")));
+        Assert.False(LiveEndpoints.Allowed(Roles.Operator, onlyFirst, new LiveEvent(LiveTopics.Devices, "org_a", "loc_2", "dev_2")));
+        // События без локации (вход сотрудника в аудите) — только при доступе ко всей организации.
+        Assert.False(LiveEndpoints.Allowed(Roles.Operator, onlyFirst, new LiveEvent(LiveTopics.Audit, "org_a", null)));
+        Assert.True(LiveEndpoints.Allowed(Roles.Operator, Everything, new LiveEvent(LiveTopics.Audit, "org_a", null)));
+    }
 }

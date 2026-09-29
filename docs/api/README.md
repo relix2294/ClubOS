@@ -36,7 +36,11 @@ Tenant берётся только из JWT. Чужие объекты возв�
 | POST | `/api/v1/me/mfa/recovery-codes` | `{code}` → новые 10 кодов, старые недействительны |
 | POST | `/api/v1/staff/{id}/reset-mfa` | `staff.manage`: отключить 2FA сотрудника (потерял телефон), все его сессии отозваны; себе — нельзя |
 | GET | `/api/v1/staff` | `staff.manage`: сотрудники организации |
-| POST | `/api/v1/staff` | `staff.manage`: `{email, displayName, role}` → `{user, temporaryPassword}` (показывается один раз) |
+| POST | `/api/v1/staff` | `staff.manage`: `{email, displayName, role, locationIds?}` → `{user, temporaryPassword}` (показывается один раз). Без `locationIds` — доступ ко всем локациям |
+| POST | `/api/v1/staff/{id}/locations` | `staff.manage`: `{allLocations: true}` или `{allLocations: false, locationIds: [...]}`. Действует со следующего запроса сотрудника; Owner всегда видит все локации (**409**) |
+| POST | `/api/v1/locations` | `locations.manage`: `{name, timezone (IANA), currency (ISO 4217), zones: [{name, pricePerHourMinorUnits}]}` |
+| POST | `/api/v1/locations/{id}/zones` | `locations.manage`: `{name, pricePerHourMinorUnits}` — новая зона (до 20 на локацию) |
+| POST | `/api/v1/zones/{id}` | `locations.manage`: `{name, pricePerHourMinorUnits}`. Смена цены увеличивает версию правила; идущие сессии досчитываются по снимку тарифа; Edge получает цену при обновлении конфигурации |
 | POST | `/api/v1/staff/{id}/role` | `staff.manage`: `{role}`; последнего активного Owner понизить нельзя |
 | POST | `/api/v1/staff/{id}/deactivate`, `/activate` | `staff.manage`: отключение действует сразу; себя отключить нельзя |
 | POST | `/api/v1/staff/{id}/reset-password` | `staff.manage`: временный пароль, все сессии сотрудника отозваны |
@@ -51,6 +55,12 @@ Tenant берётся только из JWT. Чужие объекты возв�
 | `audit.view` — журнал аудита | ✓ | ✓ | ✓ |
 | `enrollment.manage` — токены Edge и ПК | ✓ | ✓ | — |
 | `staff.manage` — персонал | ✓ | — | — |
+| `locations.manage` — локации, зоны, тарифы | ✓ | — | — |
+
+**Права по локациям.** Owner и сотрудники с «все локации» видят все локации организации. Остальные видят
+только назначенные: чужая локация, её устройства, сессии и события отвечают **404**, как объекты другой
+организации. Аудит без локации (персонал, входы) виден только при доступе ко всей организации. Live-поток
+фильтруется так же.
 
 Токен проверяется по БД на каждом запросе (активность, роль, версия токенов): отключение,
 смена роли или пароля действуют сразу. С временным паролем доступны только `/me` и `/me/password`.

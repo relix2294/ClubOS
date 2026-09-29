@@ -14,8 +14,11 @@ public static class Permissions
     public const string EnrollmentManage = "enrollment.manage";
     public const string StaffManage = "staff.manage";
 
+    /// <summary>Локации, зоны и тарифы (деньги) — только владелец.</summary>
+    public const string LocationsManage = "locations.manage";
+
     public static readonly IReadOnlyList<string> All =
-        [DevicesView, DevicesCommand, SessionsManage, AuditView, EnrollmentManage, StaffManage];
+        [DevicesView, DevicesCommand, SessionsManage, AuditView, EnrollmentManage, StaffManage, LocationsManage];
 
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> ByRole =
         new Dictionary<string, IReadOnlySet<string>>

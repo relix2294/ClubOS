@@ -21,7 +21,10 @@ const ALLOWED = [
   /^audit$/,
   /^enrollment-tokens\/(device|edge)$/,
   /^staff$/,
-  /^staff\/[\w-]+\/(role|activate|deactivate|reset-password|reset-mfa)$/,
+  /^staff\/[\w-]+\/(role|activate|deactivate|reset-password|reset-mfa|locations)$/,
+  /^locations$/,
+  /^locations\/[\w-]+\/zones$/,
+  /^zones\/[\w-]+$/,
   /^me\/mfa(\/(setup|recovery-codes))?$/,
 ];
 // Смена своего пароля идёт через /api/auth/password (BFF обновляет cookie).

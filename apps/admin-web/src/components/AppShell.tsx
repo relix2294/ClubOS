@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { createContext, useContext, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { LocationView, MeResponse, Permission } from "@clubos/contracts";
 import { UNAUTHORIZED_EVENT, apiGet } from "@/lib/api";
 import { roleLabel, t } from "@/lib/i18n";
@@ -26,11 +26,14 @@ export function useShell(): ShellContext {
   return value;
 }
 
+const LOCATION_KEY = "clubos.locationId";
+
 const allNav: { href: string; label: string; permission?: Permission }[] = [
   { href: "/", label: t.nav.dashboard, permission: "devices.view" },
   { href: "/audit", label: t.nav.audit, permission: "audit.view" },
   { href: "/enrollment", label: t.nav.enrollment, permission: "enrollment.manage" },
   { href: "/staff", label: t.nav.staff, permission: "staff.manage" },
+  { href: "/locations", label: t.nav.locations, permission: "locations.manage" },
   { href: "/account", label: t.nav.account },
 ];
 
@@ -48,6 +51,22 @@ export function AppShell({ children }: { children: ReactNode }) {
     topics: ["edges", "staff"],
   });
   const live = useLive();
+  // Выбранная локация — на устройстве сотрудника (localStorage); права проверяет backend.
+  const [selectedLocationId, setSelectedLocationId] = useState<string | null>(() => {
+    try {
+      return typeof window === "undefined" ? null : window.localStorage.getItem(LOCATION_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const selectLocation = (id: string) => {
+    setSelectedLocationId(id);
+    try {
+      window.localStorage.setItem(LOCATION_KEY, id);
+    } catch {
+      // приватный режим — выбор живёт до перезагрузки
+    }
+  };
   const mustChangePassword = me?.user.mustChangePassword === true;
   // Временный пароль или не настроенная обязательная 2FA: до исправления доступна только страница «Мой пароль».
   const restricted = mustChangePassword || me?.user.mfaSetupRequired === true;
@@ -75,7 +94,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const location = me.locations[0];
+  // Сохранённая локация могла стать недоступной (доступ изменён) — тогда первая доступная.
+  const location = me.locations.find((l) => l.locationId === selectedLocationId) ?? me.locations[0];
   if (!location) {
     return <div className="p-8 text-slate-600">У организации нет локаций.</div>;
   }
@@ -142,7 +162,23 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-6 py-3">
             <div>
-              <div className="text-base font-semibold text-slate-900">{location.name}</div>
+              {me.locations.length > 1 ? (
+                <select
+                  aria-label={t.nav.location}
+                  data-testid="location-select"
+                  className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-base font-semibold text-slate-900"
+                  value={location.locationId}
+                  onChange={(e) => selectLocation(e.target.value)}
+                >
+                  {me.locations.map((l) => (
+                    <option key={l.locationId} value={l.locationId}>
+                      {l.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="text-base font-semibold text-slate-900">{location.name}</div>
+              )}
               <div className="text-xs text-slate-500">
                 {location.timezone} · {location.currency}
               </div>

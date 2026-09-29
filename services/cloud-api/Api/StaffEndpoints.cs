@@ -45,14 +45,15 @@ public static class StaffEndpoints
         enrollment.MapPost("/edge", CreateEdgeToken);
     }
 
-    private static async Task<IResult> GetMe(HttpContext http, ClubOsDbContext db, TokenService tokens, TimeProvider time,
+    private static async Task<IResult> GetMe(HttpContext http, LocationScope scope, ClubOsDbContext db, TokenService tokens, TimeProvider time,
         CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
         var user = await db.Users.AsNoTracking().SingleAsync(x => x.Id == staff.UserId, ct);
         var org = await db.Organizations.AsNoTracking().SingleAsync(x => x.Id == staff.TenantId, ct);
-        var locations = await db.Locations.AsNoTracking().Where(x => x.OrganizationId == staff.TenantId)
-            .OrderBy(x => x.Name).ToListAsync(ct);
+        var access = await scope.GetAsync(ct);
+        var locations = (await db.Locations.AsNoTracking().Where(x => x.OrganizationId == staff.TenantId)
+            .OrderBy(x => x.Name).ToListAsync(ct)).Where(l => access.Contains(l.Id)).ToList();
         var locationIds = locations.Select(x => x.Id).ToList();
         var zones = await db.Zones.AsNoTracking().Where(x => locationIds.Contains(x.LocationId)).OrderBy(x => x.Name)
             .ToListAsync(ct);
@@ -66,11 +67,12 @@ public static class StaffEndpoints
         return Results.Ok(new MeResponse(user.ToView(org.Name, tokens.MfaSetupRequired(user)), views));
     }
 
-    private static async Task<IResult> ListDevices(string locationId, HttpContext http, ClubOsDbContext db,
+    private static async Task<IResult> ListDevices(string locationId, HttpContext http, LocationScope scope, ClubOsDbContext db,
         TimeProvider time, CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
-        if (!await db.Locations.AnyAsync(x => x.Id == locationId && x.OrganizationId == staff.TenantId, ct))
+        if (!await db.Locations.AnyAsync(x => x.Id == locationId && x.OrganizationId == staff.TenantId, ct) ||
+            !await scope.CanAccessAsync(locationId, ct))
         {
             return Problems.NotFound("Локация");
         }
@@ -92,13 +94,13 @@ public static class StaffEndpoints
                 .Select(s => s.ToView()).FirstOrDefault(), now)).ToList());
     }
 
-    private static async Task<IResult> GetDevice(string deviceId, HttpContext http, ClubOsDbContext db, TimeProvider time,
+    private static async Task<IResult> GetDevice(string deviceId, HttpContext http, LocationScope scope, ClubOsDbContext db, TimeProvider time,
         CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
         var device = await db.Devices.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == deviceId && x.TenantId == staff.TenantId, ct);
-        if (device is null)
+        if (device is null || !await scope.CanAccessAsync(device.LocationId, ct))
         {
             return Problems.NotFound("Устройство");
         }
@@ -110,11 +112,13 @@ public static class StaffEndpoints
         return Results.Ok(device.ToView(zone.Name, open?.ToView(), time.GetUtcNow()));
     }
 
-    private static async Task<IResult> ListCommands(string deviceId, HttpContext http, ClubOsDbContext db,
+    private static async Task<IResult> ListCommands(string deviceId, HttpContext http, LocationScope scope, ClubOsDbContext db,
         CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
-        if (!await db.Devices.AnyAsync(x => x.Id == deviceId && x.TenantId == staff.TenantId, ct))
+        var deviceLocation = await db.Devices.Where(x => x.Id == deviceId && x.TenantId == staff.TenantId)
+            .Select(x => x.LocationId).SingleOrDefaultAsync(ct);
+        if (deviceLocation is null || !await scope.CanAccessAsync(deviceLocation, ct))
         {
             return Problems.NotFound("Устройство");
         }
@@ -125,12 +129,12 @@ public static class StaffEndpoints
         return Results.Ok(commands.Select(x => x.ToView()).ToList());
     }
 
-    private static async Task<IResult> IssueCommand(string deviceId, IssueCommandRequest request, HttpContext http,
+    private static async Task<IResult> IssueCommand(string deviceId, IssueCommandRequest request, HttpContext http, LocationScope scope,
         ClubOsDbContext db, AuditWriter audit, TimeProvider time, CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
         var device = await db.Devices.SingleOrDefaultAsync(x => x.Id == deviceId && x.TenantId == staff.TenantId, ct);
-        if (device is null)
+        if (device is null || !await scope.CanAccessAsync(device.LocationId, ct))
         {
             return Problems.NotFound("Устройство");
         }
@@ -228,11 +232,13 @@ public static class StaffEndpoints
         return Results.Created($"/api/v1/devices/{deviceId}/commands/{commandId}", command.ToView());
     }
 
-    private static async Task<IResult> ListSessions(string deviceId, HttpContext http, ClubOsDbContext db,
+    private static async Task<IResult> ListSessions(string deviceId, HttpContext http, LocationScope scope, ClubOsDbContext db,
         CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
-        if (!await db.Devices.AnyAsync(x => x.Id == deviceId && x.TenantId == staff.TenantId, ct))
+        var deviceLocation = await db.Devices.Where(x => x.Id == deviceId && x.TenantId == staff.TenantId)
+            .Select(x => x.LocationId).SingleOrDefaultAsync(ct);
+        if (deviceLocation is null || !await scope.CanAccessAsync(deviceLocation, ct))
         {
             return Problems.NotFound("Устройство");
         }
@@ -246,7 +252,7 @@ public static class StaffEndpoints
     /// Запрос старта сессии. Источник истины — Edge (ТЗ §23.3): Cloud фиксирует price snapshot,
     /// ставит StartSession в очередь Edge и возвращает 202; Active наступает по событию SessionStarted.
     /// </summary>
-    private static async Task<IResult> StartSession(string deviceId, StartSessionRequestBody? body, HttpContext http,
+    private static async Task<IResult> StartSession(string deviceId, StartSessionRequestBody? body, HttpContext http, LocationScope scope,
         ClubOsDbContext db, AuditWriter audit, TimeProvider time, CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
@@ -258,7 +264,7 @@ public static class StaffEndpoints
         }
 
         var device = await db.Devices.SingleOrDefaultAsync(x => x.Id == deviceId && x.TenantId == staff.TenantId, ct);
-        if (device is null)
+        if (device is null || !await scope.CanAccessAsync(device.LocationId, ct))
         {
             return Problems.NotFound("Устройство");
         }
@@ -315,12 +321,12 @@ public static class StaffEndpoints
     }
 
     /// <summary>Идемпотентно: повторный запрос завершения не создаёт второй EndSession (ТЗ §5.1).</summary>
-    private static async Task<IResult> EndSession(string sessionId, HttpContext http, ClubOsDbContext db,
+    private static async Task<IResult> EndSession(string sessionId, HttpContext http, LocationScope scope, ClubOsDbContext db,
         AuditWriter audit, TimeProvider time, CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
         var session = await db.Sessions.SingleOrDefaultAsync(x => x.Id == sessionId && x.TenantId == staff.TenantId, ct);
-        if (session is null)
+        if (session is null || !await scope.CanAccessAsync(session.LocationId, ct))
         {
             return Problems.NotFound("Сессия");
         }
@@ -356,7 +362,7 @@ public static class StaffEndpoints
     /// Продление сессии с лимитом. Cloud не меняет плановое окончание сам: его двигает Edge,
     /// а Cloud узнаёт новое значение из события SessionExtended (Edge — источник истины).
     /// </summary>
-    private static async Task<IResult> ExtendSession(string sessionId, ExtendSessionRequest request, HttpContext http,
+    private static async Task<IResult> ExtendSession(string sessionId, ExtendSessionRequest request, HttpContext http, LocationScope scope,
         ClubOsDbContext db, AuditWriter audit, TimeProvider time, CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
@@ -367,7 +373,7 @@ public static class StaffEndpoints
         }
 
         var session = await db.Sessions.SingleOrDefaultAsync(x => x.Id == sessionId && x.TenantId == staff.TenantId, ct);
-        if (session is null)
+        if (session is null || !await scope.CanAccessAsync(session.LocationId, ct))
         {
             return Problems.NotFound("Сессия");
         }
@@ -405,12 +411,20 @@ public static class StaffEndpoints
         return Results.Accepted($"/api/v1/devices/{session.DeviceId}/sessions", session.ToView());
     }
 
-    private static async Task<IResult> ListAudit(string? locationId, string? target, int? limit, HttpContext http,
+    private static async Task<IResult> ListAudit(string? locationId, string? target, int? limit, HttpContext http, LocationScope scope,
         ClubOsDbContext db, CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
         var take = Math.Clamp(limit ?? 100, 1, 500);
         var query = db.AuditEvents.AsNoTracking().Where(x => x.TenantId == staff.TenantId);
+        var access = await scope.GetAsync(ct);
+        if (!access.All)
+        {
+            // Ограниченный доступ: только события своих локаций; события организации (персонал, входы) не видны.
+            var allowed = access.LocationIds.ToList();
+            query = query.Where(x => x.LocationId != null && allowed.Contains(x.LocationId));
+        }
+
         if (!string.IsNullOrWhiteSpace(locationId))
         {
             query = query.Where(x => x.LocationId == locationId);
@@ -454,7 +468,7 @@ public static class StaffEndpoints
         return names;
     }
 
-    private static async Task<IResult> CreateDeviceToken(EnrollmentTokenRequest request, HttpContext http,
+    private static async Task<IResult> CreateDeviceToken(EnrollmentTokenRequest request, HttpContext http, LocationScope scope,
         ClubOsDbContext db, AuditWriter audit, TimeProvider time, CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
@@ -464,7 +478,8 @@ public static class StaffEndpoints
             return Problems.Validation("invalid_name", "Имя устройства 1–64 символа.");
         }
 
-        var locationOk = await db.Locations.AnyAsync(x => x.Id == request.LocationId && x.OrganizationId == staff.TenantId, ct);
+        var locationOk = await db.Locations.AnyAsync(x => x.Id == request.LocationId && x.OrganizationId == staff.TenantId, ct) &&
+                         await scope.CanAccessAsync(request.LocationId, ct);
         var zoneOk = await db.Zones.AnyAsync(x => x.Id == request.ZoneId && x.LocationId == request.LocationId, ct);
         if (!locationOk || !zoneOk)
         {
@@ -475,7 +490,7 @@ public static class StaffEndpoints
             request.Simulated, ct);
     }
 
-    private static async Task<IResult> CreateEdgeToken(EdgeEnrollmentTokenRequest request, HttpContext http,
+    private static async Task<IResult> CreateEdgeToken(EdgeEnrollmentTokenRequest request, HttpContext http, LocationScope scope,
         ClubOsDbContext db, AuditWriter audit, TimeProvider time, CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
@@ -485,7 +500,8 @@ public static class StaffEndpoints
             return Problems.Validation("invalid_name", "Имя Edge 1–64 символа.");
         }
 
-        if (!await db.Locations.AnyAsync(x => x.Id == request.LocationId && x.OrganizationId == staff.TenantId, ct))
+        if (!await db.Locations.AnyAsync(x => x.Id == request.LocationId && x.OrganizationId == staff.TenantId, ct) ||
+            !await scope.CanAccessAsync(request.LocationId, ct))
         {
             return Problems.NotFound("Локация");
         }

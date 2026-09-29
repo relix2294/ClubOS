@@ -91,6 +91,19 @@ public sealed class User
     public long MfaLastUsedStep { get; set; }
 
     public DateTimeOffset? MfaEnabledAtUtc { get; set; }
+
+    /// <summary>
+    /// Доступ ко всем локациям организации (в т.ч. будущим). false — только из <see cref="StaffLocationAccess"/>.
+    /// Owner всегда видит все локации независимо от флага.
+    /// </summary>
+    public bool AllLocations { get; set; } = true;
+}
+
+/// <summary>Локация, доступная сотруднику с ограниченным доступом (ТЗ §8, права по локациям).</summary>
+public sealed class StaffLocationAccess
+{
+    public required string UserId { get; set; }
+    public required string LocationId { get; set; }
 }
 
 /// <summary>Одноразовый код восстановления MFA; хранится SHA-256 хэш (код — 50 бит случайности).</summary>

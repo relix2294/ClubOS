@@ -48,3 +48,11 @@ export function formatTime(utc: string | null | undefined, timeZone: string): st
   if (!utc) return "—";
   return new Intl.DateTimeFormat("ru-RU", { timeZone, hour: "2-digit", minute: "2-digit" }).format(new Date(utc));
 }
+
+/** «120», «120,5», «120.50» → минимальные единицы (12000, 12050, 12050); иначе null. */
+export function parseMoney(text: string): number | null {
+  const normalized = text.trim().replace(/\s/g, "").replace(",", ".");
+  if (!/^\d{1,7}(\.\d{1,2})?$/.test(normalized)) return null;
+  const [whole, frac = ""] = normalized.split(".");
+  return Number(whole) * 100 + Number(frac.padEnd(2, "0"));
+}

@@ -17,9 +17,11 @@ public static class Mapping
         u.MustChangePassword || mfaSetupRequired ? new List<string>() : Security.Permissions.For(u.Role).Order().ToList(),
         u.MustChangePassword, u.MfaEnabled, mfaSetupRequired);
 
-    public static StaffMemberView ToStaffView(this User u) => new(
+    /// <param name="locationIds">Назначенные локации (для сотрудника с ограниченным доступом).</param>
+    public static StaffMemberView ToStaffView(this User u, IReadOnlyList<string> locationIds) => new(
         u.Id, u.Email, u.DisplayName, u.Role, u.IsActive, u.MustChangePassword, u.CreatedAtUtc, u.LastLoginAtUtc,
-        u.MfaEnabled);
+        u.MfaEnabled, u.AllLocations || u.Role == Roles.Owner,
+        u.AllLocations || u.Role == Roles.Owner ? [] : locationIds);
 
     public static DeviceStatus EffectiveStatus(Device d, DateTimeOffset now) =>
         d.LastHeartbeatUtc is null || now - d.LastHeartbeatUtc > HeartbeatWindow ? DeviceStatus.Offline : d.Status;
