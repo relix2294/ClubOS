@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import {
   SessionLimits,
@@ -58,6 +58,7 @@ export default function DevicePage() {
             <SessionCard device={device.data} onChange={device.refresh} />
             <CommandsCard deviceId={deviceId} timezone={location.timezone} />
             {can("audit.view") && <DeviceAuditCard deviceId={deviceId} timezone={location.timezone} />}
+            {can("enrollment.manage") && <RevokeCard device={device.data} />}
           </div>
         </>
       )}
@@ -79,6 +80,7 @@ function InventoryCard({ device, timezone }: { device: DeviceView; timezone: str
     : [];
   rows.push([t.dashboard.lastHeartbeat, formatDateTime(device.lastHeartbeatUtc, timezone)]);
   rows.push([t.device.enrolled, formatDateTime(device.enrolledAtUtc, timezone)]);
+  rows.push([t.device.certificate, formatDateTime(device.certificateExpiresAtUtc, timezone)]);
 
   return (
     <Card title={t.device.inventory}>
@@ -389,6 +391,46 @@ function DeviceAuditCard({ deviceId, timezone }: { deviceId: string; timezone: s
           </li>
         ))}
       </ol>
+    </Card>
+  );
+}
+
+/** Удаление ПК (D-011): сертификат отзывается, Edge забывает устройство, история остаётся. */
+function RevokeCard({ device }: { device: DeviceView }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const revoke = async () => {
+    if (!window.confirm(t.device.revokeConfirm(device.displayName))) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      await apiPost(`devices/${device.deviceId}/revoke`);
+      router.replace("/");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card title={t.device.revokeTitle} className="border-red-200 xl:col-span-2">
+      <div className="flex flex-col gap-3">
+        <p className="text-sm text-slate-600">{t.device.revokeHint}</p>
+        {error && (
+          <p role="alert" className="text-sm text-red-700">
+            {error}
+          </p>
+        )}
+        <div>
+          <Button variant="danger" disabled={busy || !!device.activeSession} onClick={revoke}>
+            {t.device.revoke}
+          </Button>
+          {device.activeSession && <span className="ml-3 text-xs text-slate-500">{t.device.revokeSessionOpen}</span>}
+        </div>
+      </div>
     </Card>
   );
 }

@@ -31,6 +31,7 @@ builder.Services.AddDbContext<ClubOsDbContext>((sp, o) => o.UseNpgsql(connection
     .AddInterceptors(sp.GetRequiredService<LiveChangeInterceptor>()));
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.Section));
 builder.Services.Configure<SeedOptions>(builder.Configuration.GetSection(SeedOptions.Section));
+builder.Services.Configure<PkiOptions>(builder.Configuration.GetSection(PkiOptions.Section));
 builder.Services.AddSingleton<SigningKeyProvider>();
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddSingleton<SecretProtector>();
@@ -175,6 +176,7 @@ app.MapEdgeEndpoints();
 app.MapLiveEndpoints();
 app.MapMfaEndpoints();
 app.MapLocationEndpoints();
+app.MapRevocationEndpoints();
 
 await app.RunAsync();
 return 0;

@@ -20,6 +20,11 @@ public sealed class AgentOptions
     public int CommandPollSeconds { get; set; } = 20;
     public int MaxBackoffSeconds { get; set; } = 30;
 
+    /// <summary>За сколько дней до истечения сертификата устройства агент его продлевает (D-011).</summary>
+    public int CertificateRenewBeforeDays { get; set; } = 30;
+
+    public int CertificateCheckMinutes { get; set; } = 360;
+
     /// <summary>Player Shell (M1): экран клуба и индикатор сессии. По умолчанию выключен (поведение M0).</summary>
     public ShellOptions Shell { get; set; } = new();
 }

@@ -35,6 +35,9 @@ public sealed record EdgeConfigResponse
     public required string Currency { get; init; }
     public required IReadOnlyList<EdgeZoneConfig> Zones { get; init; }
     public required IReadOnlyList<EdgeDeviceConfig> Devices { get; init; }
+
+    /// <summary>Отозванные устройства локации: Edge удаляет их и больше не принимает их запросы (D-011).</summary>
+    public IReadOnlyList<string> RevokedDeviceIds { get; init; } = [];
 }
 
 public sealed record EdgeZoneConfig
@@ -91,7 +94,10 @@ public enum EdgeCommandKind
     EndSession,
 
     /// <summary>Продление сессии с лимитом времени (M1, Player Shell).</summary>
-    ExtendSession
+    ExtendSession,
+
+    /// <summary>Устройство удалено в Admin Web: Edge забывает его сертификат (D-011).</summary>
+    RevokeDevice
 }
 
 /// <summary>Элемент очереди Cloud → Edge. Edge дедуплицирует по <see cref="Id"/>.</summary>
@@ -105,6 +111,28 @@ public sealed record EdgeCommand
     public StartSessionCommand? StartSession { get; init; }
     public EndSessionCommand? EndSession { get; init; }
     public ExtendSessionCommand? ExtendSession { get; init; }
+    public RevokeDeviceCommand? RevokeDevice { get; init; }
+}
+
+public sealed record RevokeDeviceCommand
+{
+    public required string DeviceId { get; init; }
+    public required string Actor { get; init; }
+}
+
+/// <summary>
+/// Продление сертификата (Edge или устройства). Запрос подписан текущим ключом субъекта; CSR — от того же
+/// ключа (ротация ключа — M2). CA назначает subject сам, как при enrollment.
+/// </summary>
+public sealed record CertificateRenewRequest
+{
+    public required string CertificateSigningRequestPem { get; init; }
+}
+
+public sealed record CertificateRenewResponse
+{
+    public required string CertificatePem { get; init; }
+    public required DateTimeOffset CertificateExpiresAtUtc { get; init; }
 }
 
 public sealed record StartSessionCommand

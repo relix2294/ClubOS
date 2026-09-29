@@ -35,7 +35,53 @@ public sealed class AgentRuntime(
         await EnsureEnrolledAsync(ct);
         logger.LogInformation("Агент {DeviceId} ({Name}) запущен, Edge: {EdgeUrl}", identity.Current!.DeviceId,
             identity.Current.DisplayName, options.EdgeUrl);
-        await Task.WhenAll(HeartbeatLoop(ct), CommandLoop(ct), shellLoop);
+        await Task.WhenAll(HeartbeatLoop(ct), CommandLoop(ct), RenewalLoop(ct), shellLoop);
+    }
+
+    /// <summary>
+    /// Продление сертификата устройства через Edge за <see cref="AgentOptions.CertificateRenewBeforeDays"/> дней
+    /// до истечения. Ключ прежний, запрос подписан им же. true — продлён.
+    /// </summary>
+    public async Task<bool> RenewCertificateIfDueAsync(CancellationToken ct)
+    {
+        var current = identity.Current;
+        if (current is null ||
+            current.CertificateExpiresAtUtc - time.GetUtcNow() > TimeSpan.FromDays(options.CertificateRenewBeforeDays))
+        {
+            return false;
+        }
+
+        var response = await edge.RenewAsync(new CertificateRenewRequest
+        {
+            CertificateSigningRequestPem = identity.Key.CreateSigningRequestPem("clubos-device")
+        }, ct);
+        identity.Save(current with
+        {
+            CertificatePem = response.CertificatePem,
+            CertificateExpiresAtUtc = response.CertificateExpiresAtUtc
+        });
+        logger.LogInformation("Сертификат устройства продлён до {ExpiresAt}", response.CertificateExpiresAtUtc);
+        return true;
+    }
+
+    private async Task RenewalLoop(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            if (!Paused)
+            {
+                try
+                {
+                    await RenewCertificateIfDueAsync(ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning("Продление сертификата не удалось, повтор позже: {Error}", ex.Message);
+                }
+            }
+
+            await SafeDelay(TimeSpan.FromMinutes(Math.Max(1, options.CertificateCheckMinutes)), ct);
+        }
     }
 
     private DeviceStatus CurrentStatus() =>
@@ -107,6 +153,13 @@ public sealed class AgentRuntime(
                     {
                         shell.Apply(state);
                     }
+                }
+                catch (EdgeRequestException ex) when (ex.Status == 401)
+                {
+                    _heartbeats = 0;
+                    // Не стираем identity: 401 бывает и при сбитых часах ПК. Сообщение — для техника в журнале.
+                    logger.LogError("Edge не принимает это устройство (401): оно удалено в Admin Web, Edge переустановлен " +
+                                    "или часы ПК сильно расходятся с Edge. Для повторной регистрации: install-agent.ps1 -ReEnroll.");
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {

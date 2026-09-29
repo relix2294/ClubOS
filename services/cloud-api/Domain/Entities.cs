@@ -156,6 +156,10 @@ public sealed class Edge
     public DateTimeOffset? LastSeenAtUtc { get; set; }
     public int PendingOutboxEvents { get; set; }
     public DateTimeOffset? LastEdgeClockUtc { get; set; }
+
+    /// <summary>Edge отключён: его запросы к Cloud отклоняются, для локации нужен новый enrollment (D-011).</summary>
+    public DateTimeOffset? RevokedAtUtc { get; set; }
+    public string? RevokedBy { get; set; }
 }
 
 public static class EnrollmentKinds
@@ -206,6 +210,13 @@ public sealed class Device
     public required string CertificatePem { get; set; }
     public DateTimeOffset CertificateExpiresAtUtc { get; set; }
     public DateTimeOffset EnrolledAtUtc { get; set; }
+
+    /// <summary>
+    /// Устройство удалено (отозвано): не показывается, Edge его забывает, запросы агента отклоняются.
+    /// Запись остаётся ради истории сессий и аудита (D-011).
+    /// </summary>
+    public DateTimeOffset? RevokedAtUtc { get; set; }
+    public string? RevokedBy { get; set; }
 }
 
 /// <summary>Команда устройству со своим жизненным циклом (ТЗ §10.2, §24.3).</summary>

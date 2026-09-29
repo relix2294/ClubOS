@@ -54,12 +54,12 @@ public sealed class LivePresenceMonitor(
         var db = scope.ServiceProvider.GetRequiredService<ClubOsDbContext>();
         var now = time.GetUtcNow();
 
-        var devices = (await db.Devices.AsNoTracking()
+        var devices = (await db.Devices.AsNoTracking().Where(d => d.RevokedAtUtc == null)
                 .Select(d => new { d.Id, d.TenantId, d.LocationId, d.Status, d.LastHeartbeatUtc })
                 .ToListAsync(ct))
             .ToDictionary(d => d.Id, d => (Tenant: d.TenantId, Location: d.LocationId,
                 Status: d.LastHeartbeatUtc is null || now - d.LastHeartbeatUtc > Mapping.HeartbeatWindow ? DeviceStatus.Offline : d.Status));
-        var edges = (await db.Edges.AsNoTracking()
+        var edges = (await db.Edges.AsNoTracking().Where(e => e.RevokedAtUtc == null)
                 .Select(e => new { e.Id, e.TenantId, e.LocationId, e.LastSeenAtUtc })
                 .ToListAsync(ct))
             .ToDictionary(e => e.Id, e => (Tenant: e.TenantId, Location: e.LocationId,

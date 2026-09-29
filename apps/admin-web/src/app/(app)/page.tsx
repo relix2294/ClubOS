@@ -7,7 +7,7 @@ import { IconServer } from "@/components/icons";
 import { SessionTimer } from "@/components/SessionTimer";
 import { DeviceStatusBadge } from "@/components/StatusBadge";
 import { Card, EmptyState, ErrorState, Loading, SimulatedBadge } from "@/components/ui";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import { formatAgo, formatDateTime } from "@/lib/format";
 import { deviceStatusLabel, t } from "@/lib/i18n";
 import { useNow, usePolling } from "@/lib/usePolling";
@@ -94,7 +94,7 @@ export default function DashboardPage() {
 }
 
 function EdgePanel() {
-  const { location } = useShell();
+  const { location, can, refreshMe } = useShell();
   if (location.edges.length === 0) {
     return <EmptyState>{t.dashboard.noEdge}</EmptyState>;
   }
@@ -119,6 +119,26 @@ function EdgePanel() {
               </span>
             )}
             <span className="text-xs text-slate-500">последняя связь: {formatDateTime(edge.lastSeenAtUtc, location.timezone)}</span>
+            <span className="text-xs text-slate-500">
+              {t.dashboard.edgeCertificate}: {formatDateTime(edge.certificateExpiresAtUtc, location.timezone)}
+            </span>
+            {can("enrollment.manage") && (
+              <button
+                type="button"
+                className="ml-auto text-xs text-red-700 underline"
+                onClick={async () => {
+                  if (!window.confirm(t.dashboard.revokeEdgeConfirm(edge.name))) return;
+                  try {
+                    await apiPost(`edges/${edge.edgeId}/revoke`);
+                    refreshMe();
+                  } catch (e) {
+                    window.alert((e as Error).message);
+                  }
+                }}
+              >
+                {t.dashboard.revokeEdge}
+              </button>
+            )}
           </li>
         ))}
       </ul>

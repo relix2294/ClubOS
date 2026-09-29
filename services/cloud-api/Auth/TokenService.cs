@@ -63,6 +63,9 @@ public sealed class TokenService(ClubOsDbContext db, IOptions<AuthOptions> optio
     /// Ротация: старый refresh отзывается, выдаётся новый. Повторное использование отозванного токена
     /// (признак кражи) отзывает всю цепочку пользователя.
     /// </summary>
+    /// <summary>Окно, в котором повтор только что ротированного refresh-токена считается гонкой, а не кражей.</summary>
+    public static readonly TimeSpan ReuseGrace = TimeSpan.FromSeconds(30);
+
     public async Task<(User User, IssuedTokens Tokens)?> RefreshAsync(string refreshSecret, CancellationToken ct)
     {
         var hash = Ids.HashSecret(refreshSecret);
@@ -73,10 +76,18 @@ public sealed class TokenService(ClubOsDbContext db, IOptions<AuthOptions> optio
             return null;
         }
 
-        if (stored.RevokedAtUtc is not null)
+        if (stored.RevokedAtUtc is { } revokedAt)
         {
-            await db.RefreshTokens.Where(x => x.UserId == stored.UserId && x.RevokedAtUtc == null)
-                .ExecuteUpdateAsync(s => s.SetProperty(x => x.RevokedAtUtc, now), ct);
+            // Признак кражи — повтор токена, который уже был ротирован, и не сразу после ротации.
+            // Не кража: (1) токен отозван сменой пароля/2FA/отключением (ReplacedById = null) —
+            // запрос, отправленный до смены, приходит со старым cookie; (2) две вкладки обновили токен
+            // одновременно (повтор в пределах ReuseGrace). В этих случаях просто 401, без отзыва новых токенов.
+            if (stored.ReplacedById is not null && now - revokedAt > ReuseGrace)
+            {
+                await db.RefreshTokens.Where(x => x.UserId == stored.UserId && x.RevokedAtUtc == null)
+                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.RevokedAtUtc, now), ct);
+            }
+
             return null;
         }
 

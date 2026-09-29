@@ -39,6 +39,7 @@ test("login → устройства → карточка устройства",
   await expect(inventory).toContainText("Имя ПК");
   await expect(inventory).toContainText("IPv4");
   await expect(inventory).toContainText("Последний heartbeat");
+  await expect(inventory).toContainText("Сертификат до");
 });
 
 test("ShowMessage проходит жизненный цикл до «Выполнена»", async ({ page }) => {

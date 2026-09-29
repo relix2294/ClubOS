@@ -27,7 +27,7 @@ public sealed class EdgeHost : IAsyncDisposable
 {
     private readonly WebApplicationFactory<EdgeOptions> _factory;
 
-    public EdgeHost(CloudFixture cloud, string dataPath, string? enrollmentToken)
+    public EdgeHost(CloudFixture cloud, string dataPath, string? enrollmentToken, int renewBeforeDays = 30)
     {
         DataPath = dataPath;
         Wan = new WanSwitch(cloud.Factory.Server.CreateHandler());
@@ -42,6 +42,7 @@ public sealed class EdgeHost : IAsyncDisposable
             b.UseSetting("Edge:ConfigRefreshSeconds", "1");
             b.UseSetting("Edge:CommandLongPollSeconds", "2");
             b.UseSetting("Edge:MaxBackoffSeconds", "1");
+            b.UseSetting("Edge:CertificateRenewBeforeDays", renewBeforeDays.ToString(System.Globalization.CultureInfo.InvariantCulture));
             b.ConfigureServices(s => s.AddHttpClient(CloudClient.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Wan));
         });
         _ = _factory.Server;
@@ -79,10 +80,11 @@ public sealed class AgentHost : IAsyncDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _run;
 
-    public AgentHost(EdgeHost edge, string dataPath, string enrollmentToken)
+    public AgentHost(EdgeHost edge, string dataPath, string enrollmentToken, int renewBeforeDays = 30)
     {
         Presenter = new CountingPresenter();
         var identity = new AgentIdentityStore(dataPath, new FileKeyProtector());
+        Identity = identity;
         var options = new AgentOptions
         {
             EdgeUrl = "http://localhost",
@@ -91,7 +93,9 @@ public sealed class AgentHost : IAsyncDisposable
             HeartbeatSeconds = 1,
             CommandPollSeconds = 2,
             MaxBackoffSeconds = 1,
-            Shell = new ShellOptions { Mode = ShellMode.Enforced }
+            Shell = new ShellOptions { Mode = ShellMode.Enforced },
+            CertificateRenewBeforeDays = renewBeforeDays,
+            CertificateCheckMinutes = 24 * 60 // в тестах продление вызывается явно
         };
         Runtime = new AgentRuntime(options, identity, new EdgeClient(edge.CreateClient(), identity, TimeProvider.System),
             new BasicInventoryProvider(), Presenter,
@@ -102,6 +106,8 @@ public sealed class AgentHost : IAsyncDisposable
     }
 
     public AgentRuntime Runtime { get; }
+
+    public AgentIdentityStore Identity { get; }
 
     public CountingPresenter Presenter { get; }
 

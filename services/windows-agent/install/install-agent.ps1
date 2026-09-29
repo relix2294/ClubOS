@@ -20,6 +20,10 @@
   .\install-agent.ps1 -EdgeUrl http://192.168.1.10:7070 -EnrollmentToken <токен из Admin Web>
 
 .EXAMPLE
+  # ПК удалили в Admin Web (или переносят в другой клуб): новая регистрация с новым токеном.
+  .\install-agent.ps1 -EdgeUrl http://192.168.1.10:7070 -EnrollmentToken <новый токен> -ReEnroll
+
+.EXAMPLE
   .\install-agent.ps1 -EdgeUrl http://192.168.1.10:7070 -ShellMode Enforced -TechnicianPin (Read-Host -AsSecureString 'PIN техника')
 #>
 [CmdletBinding()]
@@ -28,6 +32,7 @@ param(
     [string] $EnrollmentToken,
     [ValidateSet('Off', 'Hud', 'Enforced')] [string] $ShellMode,
     [SecureString] $TechnicianPin,
+    [switch] $ReEnroll,
     [string] $SourceDir = $PSScriptRoot,
     [string] $InstallDir = "$env:ProgramFiles\ClubOS\Agent"
 )
@@ -59,6 +64,14 @@ Copy-Item -Path (Join-Path $SourceDir '*') -Destination $InstallDir -Recurse -Fo
 Write-Host "==> Каталог данных $DataDir (ACL: SYSTEM, Administrators)"
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 & icacls.exe $DataDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
+
+if ($ReEnroll) {
+    if ([string]::IsNullOrWhiteSpace($EnrollmentToken)) { throw '-ReEnroll требует -EnrollmentToken (Admin Web → Подключение).' }
+    Write-Host "==> Повторная регистрация: удаляю прежнюю identity устройства"
+    foreach ($f in 'identity.json', 'device.key', 'executed-commands.json', 'shell-state.json') {
+        Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $DataDir $f)
+    }
+}
 
 $identityExists = Test-Path (Join-Path $DataDir 'identity.json')
 if (-not $identityExists -and [string]::IsNullOrWhiteSpace($EnrollmentToken)) {

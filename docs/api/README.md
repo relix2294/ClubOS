@@ -21,6 +21,8 @@ Tenant берётся только из JWT. Чужие объекты возв�
 | GET | `/api/v1/devices/{deviceId}/sessions` | последние 20 сессий |
 | POST | `/api/v1/devices/{deviceId}/sessions` | запрос старта; тело необязательно: `{durationMinutes?: 1..1440}` — лимит времени (без него — открытая сессия, оплата по факту). **202**, `state=Created`; `Active` и `plannedEndAtUtc` приходят по событию от Edge. **409**, если открытая сессия уже есть; **400** — лимит вне диапазона |
 | POST | `/api/v1/sessions/{sessionId}/end` | запрос завершения (идемпотентно): **202**, или **200** если уже завершена/запрошена |
+| POST | `/api/v1/devices/{deviceId}/revoke` | `enrollment.manage`: удалить (отозвать) устройство. **409**, если идёт сессия. Edge получает `RevokeDevice`, история сохраняется |
+| POST | `/api/v1/edges/{edgeId}/revoke` | `enrollment.manage`: отключить Edge. Его запросы получают **401**; для локации нужен новый Edge |
 | GET | `/api/v1/live` | `devices.view`: поток Server-Sent Events. События: `ready`; `change` с `{topic, locationId, deviceId, id}`, где topic — `devices`/`commands`/`sessions`/`audit`/`edges`/`staff` (аудит — только с `audit.view`, персонал — только с `staff.manage`); `resync` — клиент отстал, перечитать всё; `ping` раз в 15 с; `reauth` — токен истёк или доступ отозван, поток закрывается. Только tenant сотрудника. Admin Web подключается через BFF `/api/live` |
 | POST | `/api/v1/sessions/{sessionId}/extend` | `{minutes: 1..720}` — продление сессии с лимитом (суммарно не больше 24 ч). **202**; новое `plannedEndAtUtc` приходит событием `SessionExtended` от Edge. **409** — сессия не идёт или без лимита |
 | GET | `/api/v1/audit?locationId=&target=device:{id}&limit=` | журнал аудита (новые сверху) |
@@ -88,6 +90,8 @@ Rate limit на `/auth/*` и enrollment: `RateLimits:AuthPerMinute` (по умо
 | POST | `/api/v1/edge/commands/ack` | `{ids}` → подтверждение получения |
 | POST | `/api/v1/edge/status` | снимок статусов устройств и размер outbox (не durable) |
 | POST | `/api/v1/edge/devices/enroll` | пересылка enrollment агента (токен привязан к локации Edge) |
+| POST | `/api/v1/edge/renew` | `{certificateSigningRequestPem}` → новый сертификат Edge (тот же ключ) |
+| POST | `/api/v1/edge/devices/{deviceId}/renew` | продление сертификата устройства своей локации (агент → Edge → Cloud) |
 
 Типы событий sync: `SessionStarted` (с `plannedEndAtUtc` для сессии с лимитом), `SessionStartRejected`,
 `SessionExtended`, `SessionEnded` (с `reason`: `staff` / `timeLimit`), `CommandStateChanged`,
@@ -105,6 +109,7 @@ Rate limit на `/auth/*` и enrollment: `RateLimits:AuthPerMinute` (по умо
 | POST | `/agent/v1/enroll` | анонимно: `DeviceEnrollRequest` → `DeviceEnrollResponse` (через Cloud) |
 | POST | `/agent/v1/heartbeat` | `HeartbeatMessage` каждые 10 с (статус агента `Idle` / `Locked` / `Maintenance`); инвентаризация примерно раз в 5 мин. В ответе тот же `state` |
 | GET | `/agent/v1/commands?waitSeconds=0..25&sessionStamp=` | long-poll команд устройства (повторная выдача Delivered возможна, агент дедуплицирует). В ответе `state` (`AgentDeviceState`): имя ПК и клуба, часы Edge, активная сессия, итог последней. Если `sessionStamp` агента устарел (старт, продление, завершение), ответ приходит сразу |
+| POST | `/agent/v1/renew` | `{certificateSigningRequestPem}` → новый сертификат устройства; нужна связь Edge с Cloud (иначе **503**, агент повторит) |
 | POST | `/agent/v1/commands/{commandId}/result` | `{state: Acknowledged/Succeeded/Failed, error?}`, переходы только вперёд |
 | GET | `/health` | состояние Edge, связь с Cloud, размер outbox |
 

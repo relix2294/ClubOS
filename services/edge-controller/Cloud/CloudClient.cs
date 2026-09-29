@@ -57,6 +57,13 @@ public sealed class CloudClient(HttpClient http, EdgeIdentityStore identity, Tim
     public Task ReportStatusAsync(EdgeStatusReport report, CancellationToken ct) =>
         SendAsync<object>(HttpMethod.Post, "api/v1/edge/status", report, ct);
 
+    public Task<CertificateRenewResponse> RenewEdgeAsync(CertificateRenewRequest request, CancellationToken ct) =>
+        SendAsync<CertificateRenewResponse>(HttpMethod.Post, "api/v1/edge/renew", request, ct);
+
+    public Task<CertificateRenewResponse> RenewDeviceAsync(string deviceId, CertificateRenewRequest request, CancellationToken ct) =>
+        SendAsync<CertificateRenewResponse>(HttpMethod.Post, $"api/v1/edge/devices/{Uri.EscapeDataString(deviceId)}/renew",
+            request, ct);
+
     public Task<DeviceEnrollResponse> EnrollDeviceAsync(DeviceEnrollRequest request, CancellationToken ct) =>
         SendAsync<DeviceEnrollResponse>(HttpMethod.Post, "api/v1/edge/devices/enroll", request, ct);
 

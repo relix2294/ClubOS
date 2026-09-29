@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { LoginResponse } from "@clubos/contracts";
-import { ACCESS_COOKIE, REFRESH_COOKIE, clearAuthCookies, cloudUrl, refreshTokens, setAuthCookies } from "@/lib/server/cloud";
+import { ACCESS_COOKIE, REFRESH_COOKIE, cloudUrl, refreshTokens, setAuthCookies } from "@/lib/server/cloud";
 
 // Live-поток для браузера (DEVIATIONS D-008): BFF открывает SSE к Cloud с токеном из httpOnly-cookie
 // и пробрасывает поток как есть. Браузер не видит JWT; EventSource сам отправляет cookie.
@@ -35,7 +35,6 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   if (!upstream.ok || !upstream.body) {
     const res = NextResponse.json({ detail: "Live-поток недоступен." }, { status: upstream.status === 200 ? 502 : upstream.status });
-    if (upstream.status === 401) clearAuthCookies(res);
     return res;
   }
 

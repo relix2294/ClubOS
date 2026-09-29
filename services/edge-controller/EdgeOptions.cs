@@ -32,4 +32,10 @@ public sealed class EdgeOptions
     public int ConfigRefreshSeconds { get; set; } = 60;
     public int CommandLongPollSeconds { get; set; } = 20;
     public int MaxBackoffSeconds { get; set; } = 30;
+
+    /// <summary>За сколько дней до истечения Edge продлевает свой сертификат (D-011).</summary>
+    public int CertificateRenewBeforeDays { get; set; } = 30;
+
+    /// <summary>Как часто проверять срок сертификата.</summary>
+    public int CertificateCheckMinutes { get; set; } = 360;
 }

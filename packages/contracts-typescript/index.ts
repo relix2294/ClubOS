@@ -43,6 +43,8 @@ export interface DeviceView {
   inventory: DeviceInventory | null;
   enrolledAtUtc: string;
   activeSession: SessionView | null;
+  /** Срок сертификата устройства; агент продлевает его сам за 30 дней. */
+  certificateExpiresAtUtc: string;
 }
 
 // ---- Команды (ТЗ §10.2, §24.3) ----

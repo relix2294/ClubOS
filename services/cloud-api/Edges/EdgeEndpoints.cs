@@ -5,6 +5,7 @@ using ClubOS.CloudApi.Infrastructure;
 using ClubOS.Contracts;
 using ClubOS.Security;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace ClubOS.CloudApi.Edges;
 
@@ -14,8 +15,6 @@ namespace ClubOS.CloudApi.Edges;
 /// </summary>
 public static class EdgeEndpoints
 {
-    private static readonly TimeSpan EdgeCertificateValidity = TimeSpan.FromDays(90);
-    private static readonly TimeSpan DeviceCertificateValidity = TimeSpan.FromDays(90);
     private const int MaxLongPollSeconds = 25;
 
     public static void MapEdgeEndpoints(this IEndpointRouteBuilder app)
@@ -30,10 +29,12 @@ public static class EdgeEndpoints
         edge.MapPost("/commands/ack", AckCommands);
         edge.MapPost("/status", ReportStatus);
         edge.MapPost("/devices/enroll", EnrollDevice).RequireRateLimiting(RateLimits.Auth);
+        edge.MapPost("/renew", RenewEdge);
+        edge.MapPost("/devices/{deviceId}/renew", RenewDevice);
     }
 
     private static async Task<IResult> Enroll(EdgeEnrollRequest request, ClubOsDbContext db, DevCertificateAuthority ca,
-        AuditWriter audit, TimeProvider time, CancellationToken ct)
+        IOptions<PkiOptions> pki, AuditWriter audit, TimeProvider time, CancellationToken ct)
     {
         var token = await ConsumeToken(db, request.EnrollmentToken, EnrollmentKinds.Edge, time, ct);
         if (token is null)
@@ -46,7 +47,7 @@ public static class EdgeEndpoints
         try
         {
             cert = ca.Issue(request.CertificateSigningRequestPem, edgeId, DevCertificateAuthority.RoleEdge,
-                EdgeCertificateValidity);
+                pki.Value.CertificateValidity);
         }
         catch (InvalidCsrException ex)
         {
@@ -85,8 +86,9 @@ public static class EdgeEndpoints
         var edge = EdgeContext.From(http.User);
         var location = await db.Locations.AsNoTracking().SingleAsync(x => x.Id == edge.LocationId, ct);
         var zones = await db.Zones.AsNoTracking().Where(x => x.LocationId == edge.LocationId).ToListAsync(ct);
-        var devices = await db.Devices.AsNoTracking()
+        var all = await db.Devices.AsNoTracking()
             .Where(x => x.LocationId == edge.LocationId && x.TenantId == edge.TenantId).ToListAsync(ct);
+        var devices = all.Where(x => x.RevokedAtUtc is null).ToList();
 
         return Results.Ok(new EdgeConfigResponse
         {
@@ -109,7 +111,77 @@ public static class EdgeEndpoints
                 ZoneId = d.ZoneId,
                 Simulated = d.Simulated,
                 CertificatePem = d.CertificatePem
-            }).ToList()
+            }).ToList(),
+            RevokedDeviceIds = all.Where(x => x.RevokedAtUtc is not null).Select(x => x.Id).ToList()
+        });
+    }
+
+    /// <summary>Продление сертификата Edge: запрос подписан текущим (ещё действующим) ключом Edge.</summary>
+    private static async Task<IResult> RenewEdge(CertificateRenewRequest request, HttpContext http, ClubOsDbContext db,
+        DevCertificateAuthority ca, IOptions<PkiOptions> pki, AuditWriter audit, CancellationToken ct)
+    {
+        var context = EdgeContext.From(http.User);
+        var edge = await db.Edges.SingleAsync(x => x.Id == context.EdgeId, ct);
+        IssuedCertificate cert;
+        try
+        {
+            cert = ca.Issue(request.CertificateSigningRequestPem, edge.Id, DevCertificateAuthority.RoleEdge,
+                pki.Value.CertificateValidity);
+        }
+        catch (InvalidCsrException ex)
+        {
+            return Problems.Validation("invalid_csr", ex.Message);
+        }
+
+        var previous = edge.CertificateExpiresAtUtc;
+        edge.CertificatePem = cert.CertificatePem;
+        edge.CertificateExpiresAtUtc = cert.ExpiresAtUtc;
+        audit.Write(edge.TenantId, edge.LocationId, context.Actor, "edge.certificate_renewed", $"edge:{edge.Id}",
+            AuditResults.Success, details: new { previous, cert.ExpiresAtUtc });
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(new CertificateRenewResponse
+        {
+            CertificatePem = cert.CertificatePem,
+            CertificateExpiresAtUtc = cert.ExpiresAtUtc
+        });
+    }
+
+    /// <summary>
+    /// Продление сертификата устройства: агент подписал запрос к Edge своим ключом, Edge переслал.
+    /// Только устройство локации этого Edge и только не отозванное.
+    /// </summary>
+    private static async Task<IResult> RenewDevice(string deviceId, CertificateRenewRequest request, HttpContext http,
+        ClubOsDbContext db, DevCertificateAuthority ca, IOptions<PkiOptions> pki, AuditWriter audit, CancellationToken ct)
+    {
+        var edge = EdgeContext.From(http.User);
+        var device = await db.Devices.SingleOrDefaultAsync(x => x.Id == deviceId && x.TenantId == edge.TenantId &&
+                                                                x.LocationId == edge.LocationId && x.RevokedAtUtc == null, ct);
+        if (device is null)
+        {
+            return Problems.NotFound("Устройство");
+        }
+
+        IssuedCertificate cert;
+        try
+        {
+            cert = ca.Issue(request.CertificateSigningRequestPem, device.Id, DevCertificateAuthority.RoleDevice,
+                pki.Value.CertificateValidity);
+        }
+        catch (InvalidCsrException ex)
+        {
+            return Problems.Validation("invalid_csr", ex.Message);
+        }
+
+        var previous = device.CertificateExpiresAtUtc;
+        device.CertificatePem = cert.CertificatePem;
+        device.CertificateExpiresAtUtc = cert.ExpiresAtUtc;
+        audit.Write(edge.TenantId, edge.LocationId, edge.Actor, "device.certificate_renewed", $"device:{device.Id}",
+            AuditResults.Success, details: new { previous, cert.ExpiresAtUtc });
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(new CertificateRenewResponse
+        {
+            CertificatePem = cert.CertificatePem,
+            CertificateExpiresAtUtc = cert.ExpiresAtUtc
         });
     }
 
@@ -210,6 +282,7 @@ public static class EdgeEndpoints
     /// CA назначает deviceId в сертификате. Приватный ключ агента сюда не передаётся.
     /// </summary>
     private static async Task<IResult> EnrollDevice(DeviceEnrollRequest request, HttpContext http, ClubOsDbContext db,
+        IOptions<PkiOptions> pki,
         DevCertificateAuthority ca, AuditWriter audit, TimeProvider time, CancellationToken ct)
     {
         var edge = EdgeContext.From(http.User);
@@ -226,7 +299,7 @@ public static class EdgeEndpoints
         try
         {
             cert = ca.Issue(request.CertificateSigningRequestPem, deviceId, DevCertificateAuthority.RoleDevice,
-                DeviceCertificateValidity);
+                pki.Value.CertificateValidity);
         }
         catch (InvalidCsrException ex)
         {

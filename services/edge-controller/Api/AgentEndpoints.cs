@@ -17,6 +17,38 @@ public static class AgentEndpoints
         group.MapPost("/heartbeat", Heartbeat);
         group.MapGet("/commands", Commands);
         group.MapPost("/commands/{commandId}/result", Result);
+        group.MapPost("/renew", Renew);
+    }
+
+    /// <summary>
+    /// Продление сертификата устройства: агент подписал запрос текущим ключом, Edge пересылает CSR в Cloud
+    /// (CA только там) и сразу сохраняет новый сертификат у себя. Нужна связь с Cloud — агент повторит позже.
+    /// </summary>
+    private static async Task<IResult> Renew(CertificateRenewRequest request, HttpContext http, AgentAuth auth,
+        CloudClient cloud, EdgeStore store, ILoggerFactory logs, CancellationToken ct)
+    {
+        var deviceId = auth.Authenticate(http);
+        if (deviceId is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            var response = await cloud.RenewDeviceAsync(deviceId, request, ct);
+            await store.UpdateDeviceCertificateAsync(deviceId, response.CertificatePem, ct);
+            logs.CreateLogger("Certificates").LogInformation("Сертификат устройства {DeviceId} продлён до {ExpiresAt}",
+                deviceId, response.CertificateExpiresAtUtc);
+            return Results.Ok(response);
+        }
+        catch (CloudRequestException ex) when ((int)ex.Status is >= 400 and < 500)
+        {
+            return Results.Problem(statusCode: (int)ex.Status, title: "Cloud отклонил продление сертификата.");
+        }
+        catch (HttpRequestException)
+        {
+            return Results.Problem(statusCode: 503, title: "Cloud недоступен — продление сертификата отложено.");
+        }
     }
 
     /// <summary>Enrollment агента: Edge пересылает запрос в Cloud (нужна связь с Cloud).</summary>

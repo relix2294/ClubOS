@@ -96,7 +96,8 @@ public sealed record DeviceView(
     DateTimeOffset? LastHeartbeatUtc,
     DeviceInventory? Inventory,
     DateTimeOffset EnrolledAtUtc,
-    SessionView? ActiveSession);
+    SessionView? ActiveSession,
+    DateTimeOffset CertificateExpiresAtUtc);
 
 public sealed record IssueCommandRequest(
     CommandType CommandType,

@@ -43,6 +43,12 @@ public sealed class EdgeAuthenticationHandler(
             return AuthenticateResult.Fail("unknown edge");
         }
 
+        if (edge.RevokedAtUtc is not null)
+        {
+            Logger.LogWarning("Edge {EdgeId} отключён {RevokedAt} — запрос отклонён", edgeId, edge.RevokedAtUtc);
+            return AuthenticateResult.Fail("edge revoked");
+        }
+
         var result = validator.Validator.Validate(token, edge.CertificatePem, SignedToken.AudienceCloud,
             DevCertificateAuthority.RoleEdge);
         if (!result.Success)

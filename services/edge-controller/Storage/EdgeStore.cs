@@ -90,8 +90,71 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
                 UpsertDevice(c, tx, d.DeviceId, d.DisplayName, d.ZoneId, d.Simulated, d.CertificatePem);
             }
 
+            // Страховка к команде RevokeDevice: отозванные устройства приходят и в конфигурации.
+            foreach (var id in config.RevokedDeviceIds)
+            {
+                RevokeDeviceCore(c, tx, id, "system:config", time.GetUtcNow());
+            }
+
             return 0;
         }, ct);
+    }
+
+    /// <summary>Устройство удалено в Admin Web: сессию завершить, команды провалить, сертификат забыть.</summary>
+    public async Task<bool> RevokeDeviceAsync(string deviceId, string actor, CancellationToken ct = default)
+    {
+        var revoked = await database.WriteAsync((c, tx) => RevokeDeviceCore(c, tx, deviceId, actor, time.GetUtcNow()), ct);
+        if (revoked)
+        {
+            signals.NotifyOutbox();
+            signals.NotifyDevice(deviceId);
+        }
+
+        return revoked;
+    }
+
+    /// <summary>Новый сертификат устройства после продления (тот же ключ).</summary>
+    public async Task UpdateDeviceCertificateAsync(string deviceId, string certificatePem, CancellationToken ct = default) =>
+        await database.WriteAsync((c, tx) => c.Exec(tx, "UPDATE devices SET certificate_pem = $cert WHERE device_id = $id",
+            ("$cert", certificatePem), ("$id", deviceId)), ct);
+
+    private bool RevokeDeviceCore(SqliteConnection c, SqliteTransaction tx, string deviceId, string actor, DateTimeOffset now)
+    {
+        if (c.Scalar(tx, "SELECT 1 FROM devices WHERE device_id = $d", ("$d", deviceId)) is null)
+        {
+            return false;
+        }
+
+        // Сессия, начатая локально, пока Edge был без связи, — завершается сейчас, чтобы деньги не потерялись.
+        var active = c.Query(tx, "SELECT session_id FROM sessions WHERE device_id = $d AND state = 'Active'",
+            r => r.S("session_id"), ("$d", deviceId));
+        foreach (var sessionId in active)
+        {
+            EndSessionCore(c, tx, sessionId, actor, now, SessionEndReasons.Staff);
+        }
+
+        const string error = "Устройство удалено.";
+        var pending = c.Query(tx, """
+            SELECT command_id, envelope_json FROM device_commands
+            WHERE device_id = $d AND state IN ('Queued','Delivered','Acknowledged')
+            """, r => (Id: r.S("command_id"), Env: r.S("envelope_json")), ("$d", deviceId));
+        foreach (var row in pending)
+        {
+            c.Exec(tx, "UPDATE device_commands SET state = 'Failed', error = $e, updated_at_utc = $now WHERE command_id = $id",
+                ("$e", error), ("$now", now), ("$id", row.Id));
+            var env = JsonSerializer.Deserialize<CommandEnvelope>(row.Env, ContractJson.Options)!;
+            AppendEvent(c, tx, EventTypes.CommandStateChanged, row.Id, new CommandStateChangedPayload
+            {
+                CommandId = row.Id,
+                DeviceId = deviceId,
+                State = CommandState.Failed,
+                AtUtc = now,
+                Error = error
+            }, env.CorrelationId);
+        }
+
+        c.Exec(tx, "DELETE FROM devices WHERE device_id = $d", ("$d", deviceId));
+        return true;
     }
 
     public string? GetKv(string key) =>
@@ -245,6 +308,10 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
                 case EdgeCommandKind.EndSession when command.EndSession is { } end:
                     affectedDevice = EndSessionCore(c, tx, end.SessionId, end.Actor, now, SessionEndReasons.Staff)
                         .Session?.DeviceId;
+                    break;
+                case EdgeCommandKind.RevokeDevice when command.RevokeDevice is { } revoke:
+                    affectedDevice = revoke.DeviceId;
+                    RevokeDeviceCore(c, tx, revoke.DeviceId, revoke.Actor, now);
                     break;
                 case EdgeCommandKind.ExtendSession when command.ExtendSession is { } extend:
                     affectedDevice = ExtendSessionCore(c, tx, extend.SessionId, extend.Minutes, extend.Actor, now)

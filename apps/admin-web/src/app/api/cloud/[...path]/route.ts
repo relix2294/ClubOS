@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   ACCESS_COOKIE,
   REFRESH_COOKIE,
-  clearAuthCookies,
   cloudUrl,
   isSameOriginMutation,
   refreshTokens,
@@ -25,6 +24,8 @@ const ALLOWED = [
   /^locations$/,
   /^locations\/[\w-]+\/zones$/,
   /^zones\/[\w-]+$/,
+  /^devices\/[\w-]+\/revoke$/,
+  /^edges\/[\w-]+\/revoke$/,
   /^me\/mfa(\/(setup|recovery-codes))?$/,
 ];
 // Смена своего пароля идёт через /api/auth/password (BFF обновляет cookie).
@@ -77,10 +78,10 @@ async function forward(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
     headers: { "content-type": upstream.headers.get("content-type") ?? "application/json" },
   });
 
+  // На 401 cookie не стираем: запрос мог уйти со старыми cookie, пока параллельный ответ (смена пароля,
+  // включение 2FA, обновление токена) уже записал новые. Выход стирает cookie явно (/api/auth/logout).
   if (refreshed) {
     setAuthCookies(req, res, refreshed);
-  } else if (upstream.status === 401) {
-    clearAuthCookies(res);
   }
 
   return res;

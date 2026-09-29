@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using System.Net;
 using System.Net.Http.Json;
 using Xunit;
@@ -42,11 +43,45 @@ public class AuthAndTenancyTests(CloudFixture cloud)
         var rotated = await anon.PostJsonAsync("/api/v1/auth/refresh", new { refreshToken = refresh });
         Assert.NotEqual(refresh, rotated.Str("refreshToken"));
 
-        var reuse = await anon.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = refresh });
-        Assert.Equal(HttpStatusCode.Unauthorized, reuse.StatusCode);
-        // Повторное использование отозванного токена отзывает и новую цепочку.
-        var chained = await anon.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = rotated.Str("refreshToken") });
+        // Повтор сразу после ротации — гонка двух вкладок: 401, но новая цепочка жива.
+        var race = await anon.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = refresh });
+        Assert.Equal(HttpStatusCode.Unauthorized, race.StatusCode);
+        var next = await anon.PostJsonAsync("/api/v1/auth/refresh", new { refreshToken = rotated.Str("refreshToken") });
+
+        // Повтор давно ротированного токена — признак кражи: отзывается вся цепочка.
+        var oldHash = ClubOS.CloudApi.Infrastructure.Ids.HashSecret(refresh);
+        await cloud.WithDb(async db =>
+        {
+            var stored = await db.RefreshTokens.SingleAsync(x => x.TokenHash == oldHash);
+            stored.RevokedAtUtc = DateTimeOffset.UtcNow.AddMinutes(-5);
+            return await db.SaveChangesAsync();
+        });
+        var theft = await anon.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = refresh });
+        Assert.Equal(HttpStatusCode.Unauthorized, theft.StatusCode);
+        var chained = await anon.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = next.Str("refreshToken") });
         Assert.Equal(HttpStatusCode.Unauthorized, chained.StatusCode);
+    }
+
+    [Fact]
+    public async Task Stale_refresh_after_password_change_does_not_kill_the_new_session()
+    {
+        var owner = await cloud.LoginAsync();
+        var email = $"stale-{Guid.NewGuid():N}@club.test";
+        var created = await owner.PostJsonAsync("/api/v1/staff", new { email, displayName = "Stale", role = "Operator" });
+        var temp = created.Str("temporaryPassword");
+        var anon = cloud.Anonymous();
+        var login = await anon.PostJsonAsync("/api/v1/auth/login", new { email, password = temp });
+
+        var client = cloud.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", login.Str("accessToken"));
+        var changed = await client.PostJsonAsync("/api/v1/me/password", new { currentPassword = temp, newPassword = "Stale-Session-2026!" });
+
+        // Запрос, ушедший со старыми cookie до смены пароля: старый refresh отклонён…
+        var stale = await anon.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = login.Str("refreshToken") });
+        Assert.Equal(HttpStatusCode.Unauthorized, stale.StatusCode);
+        // …а новая сессия продолжает работать.
+        var fresh = await anon.PostJsonAsync("/api/v1/auth/refresh", new { refreshToken = changed.Str("refreshToken") });
+        Assert.False(string.IsNullOrEmpty(fresh.Str("accessToken")));
     }
 
     [Fact]

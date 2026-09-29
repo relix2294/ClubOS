@@ -57,7 +57,8 @@ public static class StaffEndpoints
         var locationIds = locations.Select(x => x.Id).ToList();
         var zones = await db.Zones.AsNoTracking().Where(x => locationIds.Contains(x.LocationId)).OrderBy(x => x.Name)
             .ToListAsync(ct);
-        var edges = await db.Edges.AsNoTracking().Where(x => x.TenantId == staff.TenantId).ToListAsync(ct);
+        var edges = await db.Edges.AsNoTracking().Where(x => x.TenantId == staff.TenantId && x.RevokedAtUtc == null)
+            .ToListAsync(ct);
         var now = time.GetUtcNow();
 
         var views = locations.Select(l => new LocationView(l.Id, l.Name, l.Timezone, l.Currency,
@@ -78,7 +79,7 @@ public static class StaffEndpoints
         }
 
         var devices = await db.Devices.AsNoTracking()
-            .Where(x => x.TenantId == staff.TenantId && x.LocationId == locationId)
+            .Where(x => x.TenantId == staff.TenantId && x.LocationId == locationId && x.RevokedAtUtc == null)
             .OrderBy(x => x.DisplayName).ToListAsync(ct);
         var zones = await db.Zones.AsNoTracking().Where(x => x.LocationId == locationId)
             .ToDictionaryAsync(x => x.Id, x => x.Name, ct);
@@ -99,7 +100,7 @@ public static class StaffEndpoints
     {
         var staff = StaffContext.From(http.User);
         var device = await db.Devices.AsNoTracking()
-            .SingleOrDefaultAsync(x => x.Id == deviceId && x.TenantId == staff.TenantId, ct);
+            .SingleOrDefaultAsync(x => x.Id == deviceId && x.TenantId == staff.TenantId && x.RevokedAtUtc == null, ct);
         if (device is null || !await scope.CanAccessAsync(device.LocationId, ct))
         {
             return Problems.NotFound("Устройство");
@@ -116,7 +117,7 @@ public static class StaffEndpoints
         CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
-        var deviceLocation = await db.Devices.Where(x => x.Id == deviceId && x.TenantId == staff.TenantId)
+        var deviceLocation = await db.Devices.Where(x => x.Id == deviceId && x.TenantId == staff.TenantId && x.RevokedAtUtc == null)
             .Select(x => x.LocationId).SingleOrDefaultAsync(ct);
         if (deviceLocation is null || !await scope.CanAccessAsync(deviceLocation, ct))
         {
@@ -133,7 +134,7 @@ public static class StaffEndpoints
         ClubOsDbContext db, AuditWriter audit, TimeProvider time, CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
-        var device = await db.Devices.SingleOrDefaultAsync(x => x.Id == deviceId && x.TenantId == staff.TenantId, ct);
+        var device = await db.Devices.SingleOrDefaultAsync(x => x.Id == deviceId && x.TenantId == staff.TenantId && x.RevokedAtUtc == null, ct);
         if (device is null || !await scope.CanAccessAsync(device.LocationId, ct))
         {
             return Problems.NotFound("Устройство");
@@ -236,7 +237,7 @@ public static class StaffEndpoints
         CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
-        var deviceLocation = await db.Devices.Where(x => x.Id == deviceId && x.TenantId == staff.TenantId)
+        var deviceLocation = await db.Devices.Where(x => x.Id == deviceId && x.TenantId == staff.TenantId && x.RevokedAtUtc == null)
             .Select(x => x.LocationId).SingleOrDefaultAsync(ct);
         if (deviceLocation is null || !await scope.CanAccessAsync(deviceLocation, ct))
         {
@@ -263,7 +264,7 @@ public static class StaffEndpoints
                 $"Лимит времени — от {SessionLimits.MinDurationMinutes} до {SessionLimits.MaxDurationMinutes} минут.");
         }
 
-        var device = await db.Devices.SingleOrDefaultAsync(x => x.Id == deviceId && x.TenantId == staff.TenantId, ct);
+        var device = await db.Devices.SingleOrDefaultAsync(x => x.Id == deviceId && x.TenantId == staff.TenantId && x.RevokedAtUtc == null, ct);
         if (device is null || !await scope.CanAccessAsync(device.LocationId, ct))
         {
             return Problems.NotFound("Устройство");

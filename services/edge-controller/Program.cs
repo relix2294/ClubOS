@@ -74,6 +74,8 @@ builder.Services.AddHostedService<OutboxPublisher>();
 builder.Services.AddHostedService<CommandPuller>();
 builder.Services.AddHostedService<StatusWorker>();
 builder.Services.AddHostedService<SessionTimerWorker>();
+builder.Services.AddSingleton<CertificateRenewalWorker>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<CertificateRenewalWorker>());
 
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddProblemDetails();
