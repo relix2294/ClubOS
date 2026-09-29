@@ -34,6 +34,7 @@
 |-----------|--------|----------|
 | Next.js | 16.3.6 | MIT |
 | React, React DOM | 19.3.0 | MIT |
+| qrcode (node-qrcode) | 1.5.4 | MIT |
 | Tailwind CSS, @tailwindcss/postcss | 4.3.3 | MIT |
 | TypeScript | 5.9.3 | Apache-2.0 |
 | ESLint, eslint-config-next | 9.x / 16.3.6 | MIT |

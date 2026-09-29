@@ -24,7 +24,28 @@ public sealed record UserView(
     string OrganizationId,
     string OrganizationName,
     IReadOnlyList<string> Permissions,
-    bool MustChangePassword);
+    bool MustChangePassword,
+    bool MfaEnabled,
+    bool MfaSetupRequired);
+
+// ---- MFA (TOTP, ТЗ §8) ----
+
+/// <summary>Ответ на верный пароль при включённой MFA: нужен второй шаг <c>/auth/mfa</c>.</summary>
+public sealed record MfaChallengeResponse(bool MfaRequired, string MfaToken, DateTimeOffset ExpiresAtUtc);
+
+public sealed record MfaLoginRequest(string MfaToken, string? Code, string? RecoveryCode);
+
+public sealed record MfaStatusView(bool Enabled, bool Required, int RecoveryCodesLeft, DateTimeOffset? EnabledAtUtc);
+
+public sealed record MfaSetupResponse(string Secret, string OtpAuthUri);
+
+public sealed record MfaCodeRequest(string? Code);
+
+public sealed record MfaEnableResponse(LoginResponse Session, IReadOnlyList<string> RecoveryCodes);
+
+public sealed record MfaDisableRequest(string Password, string? Code, string? RecoveryCode);
+
+public sealed record RecoveryCodesResponse(IReadOnlyList<string> RecoveryCodes);
 
 // ---- Персонал (ТЗ §8) ----
 
@@ -36,7 +57,8 @@ public sealed record StaffMemberView(
     bool IsActive,
     bool MustChangePassword,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset? LastLoginAtUtc);
+    DateTimeOffset? LastLoginAtUtc,
+    bool MfaEnabled);
 
 public sealed record CreateStaffRequest(string Email, string DisplayName, string Role);
 

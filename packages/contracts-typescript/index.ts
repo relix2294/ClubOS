@@ -198,9 +198,12 @@ export interface UserView {
   role: StaffRole;
   organizationId: string;
   organizationName: string;
-  /** Права роли (пусто, пока не сменён временный пароль). Проверяются на backend. */
+  /** Права роли (пусто, пока не сменён временный пароль или не настроена обязательная MFA). Проверяются на backend. */
   permissions: Permission[];
   mustChangePassword: boolean;
+  mfaEnabled: boolean;
+  /** Роль требует MFA, а она не настроена: доступна только её настройка. */
+  mfaSetupRequired: boolean;
 }
 
 // ---- Персонал (ТЗ §8) ----
@@ -214,6 +217,7 @@ export interface StaffMemberView {
   mustChangePassword: boolean;
   createdAtUtc: string;
   lastLoginAtUtc: string | null;
+  mfaEnabled: boolean;
 }
 
 export interface CreateStaffRequest {
@@ -322,4 +326,35 @@ export interface LiveEvent {
   locationId: string | null;
   deviceId: string | null;
   id: string | null;
+}
+
+// ---- MFA (TOTP, ТЗ §8) ----
+
+/** Ответ /auth/login при включённой MFA: нужен второй шаг /auth/mfa. */
+export interface MfaChallengeResponse {
+  mfaRequired: true;
+  mfaToken: string;
+  expiresAtUtc: string;
+}
+
+export interface MfaStatusView {
+  enabled: boolean;
+  required: boolean;
+  recoveryCodesLeft: number;
+  enabledAtUtc: string | null;
+}
+
+export interface MfaSetupResponse {
+  /** Секрет в Base32 — для ручного ввода, если QR не сканируется. */
+  secret: string;
+  otpAuthUri: string;
+}
+
+export interface MfaEnableResponse {
+  session: LoginResponse;
+  recoveryCodes: string[];
+}
+
+export interface RecoveryCodesResponse {
+  recoveryCodes: string[];
 }

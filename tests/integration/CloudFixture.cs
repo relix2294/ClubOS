@@ -53,6 +53,8 @@ public sealed class CloudFixture : IAsyncLifetime
             b.UseSetting("Seed:Enabled", "true");
             b.UseSetting("Seed:OwnerPassword", OwnerPassword);
             b.UseSetting("RateLimits:AuthPerMinute", "10000");
+            // MFA добровольная для общих тестов; обязательную проверяет MfaTests на отдельном хосте.
+            b.UseSetting("Auth:MfaRequiredRoles", "");
         });
         _ = Factory.Server; // старт: миграции + seed
     }

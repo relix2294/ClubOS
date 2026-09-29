@@ -13,6 +13,13 @@ public sealed record StaffContext(string UserId, string TenantId, string Role, s
     /// <summary>"1" — временный пароль: доступны только /me и смена пароля.</summary>
     public const string MustChangePasswordClaim = "mcp";
 
+    /// <summary>"1" — роль требует MFA, а она не настроена: доступны только /me и настройка MFA.</summary>
+    public const string MfaSetupRequiredClaim = "mfs";
+
+    /// <summary>Токен ограничен: временный пароль или не настроенная обязательная MFA.</summary>
+    public static bool IsRestricted(ClaimsPrincipal principal) =>
+        principal.FindFirstValue(MustChangePasswordClaim) == "1" || principal.FindFirstValue(MfaSetupRequiredClaim) == "1";
+
     public string Actor => $"user:{UserId}";
 
     public static StaffContext From(ClaimsPrincipal principal)

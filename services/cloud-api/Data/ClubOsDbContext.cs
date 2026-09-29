@@ -10,6 +10,8 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
     public DbSet<Zone> Zones => Set<Zone>();
     public DbSet<User> Users => Set<User>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<MfaRecoveryCode> MfaRecoveryCodes => Set<MfaRecoveryCode>();
+    public DbSet<MfaChallenge> MfaChallenges => Set<MfaChallenge>();
     public DbSet<Edge> Edges => Set<Edge>();
     public DbSet<EnrollmentToken> EnrollmentTokens => Set<EnrollmentToken>();
     public DbSet<Device> Devices => Set<Device>();
@@ -59,6 +61,23 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.TokenHash).IsUnique();
             e.HasIndex(x => x.UserId);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<MfaRecoveryCode>(e =>
+        {
+            e.ToTable("mfa_recovery_codes");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.UserId, x.CodeHash }).IsUnique();
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<MfaChallenge>(e =>
+        {
+            e.ToTable("mfa_challenges");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.TokenHash).IsUnique();
+            e.HasIndex(x => x.ExpiresAtUtc);
             e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 

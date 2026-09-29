@@ -89,6 +89,11 @@ export default function StaffPage() {
                       <td className="py-2 pr-4">
                         <span className={u.isActive ? "text-emerald-700" : "text-slate-500"}>{u.isActive ? t.staff.active : t.staff.inactive}</span>
                         {u.mustChangePassword && <div className="text-xs text-amber-700">{t.staff.temporary}</div>}
+                        {u.mfaEnabled && (
+                          <div className="text-xs text-emerald-700" data-testid="staff-mfa">
+                            {t.staff.mfaOn} ✓
+                          </div>
+                        )}
                       </td>
                       <td className="py-2 pr-4 whitespace-nowrap text-slate-600">{formatDateTime(u.lastLoginAtUtc, location.timezone)}</td>
                       <td className="py-2">
@@ -104,6 +109,15 @@ export default function StaffPage() {
                             >
                               {t.staff.resetPassword}
                             </Button>
+                            {u.mfaEnabled && (
+                              <Button
+                                variant="secondary"
+                                className="py-1"
+                                onClick={() => window.confirm(t.staff.resetMfaConfirm) && act(() => apiPost(`staff/${u.userId}/reset-mfa`))}
+                              >
+                                {t.staff.resetMfa}
+                              </Button>
+                            )}
                             {u.isActive ? (
                               <Button
                                 variant="danger"

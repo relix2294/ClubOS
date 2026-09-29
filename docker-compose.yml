@@ -36,6 +36,10 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       CLUBOS_ConnectionStrings__ClubOs: Host=postgres;Port=5432;Database=clubos;Username=clubos;Password=${CLUBOS_DB_PASSWORD}
       CLUBOS_Auth__SigningKey: ${CLUBOS_AUTH_SIGNING_KEY:?задайте CLUBOS_AUTH_SIGNING_KEY в .env}
+      # Dev-стек: MFA добровольная (e2e, демо). На VPS обязательна для Owner/Admin.
+      CLUBOS_Auth__MfaRequiredRoles: ${CLUBOS_MFA_REQUIRED_ROLES-}
+      # Лимит попыток входа в минуту с одного IP. В dev все запросы Admin Web идут с одного IP контейнера.
+      CLUBOS_RateLimits__AuthPerMinute: ${CLUBOS_AUTH_RATE_LIMIT:-60}
       CLUBOS_Seed__Enabled: "true"
       CLUBOS_Seed__OwnerEmail: ${CLUBOS_SEED_OWNER_EMAIL:-owner@demo.clubos.local}
       CLUBOS_Seed__OwnerPassword: ${CLUBOS_SEED_OWNER_PASSWORD:?задайте CLUBOS_SEED_OWNER_PASSWORD в .env}

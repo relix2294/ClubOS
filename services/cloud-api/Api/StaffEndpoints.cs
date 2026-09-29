@@ -1,3 +1,4 @@
+using ClubOS.CloudApi.Auth;
 using System.Text.Json;
 using ClubOS.CloudApi.Data;
 using ClubOS.CloudApi.Domain;
@@ -44,7 +45,8 @@ public static class StaffEndpoints
         enrollment.MapPost("/edge", CreateEdgeToken);
     }
 
-    private static async Task<IResult> GetMe(HttpContext http, ClubOsDbContext db, TimeProvider time, CancellationToken ct)
+    private static async Task<IResult> GetMe(HttpContext http, ClubOsDbContext db, TokenService tokens, TimeProvider time,
+        CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
         var user = await db.Users.AsNoTracking().SingleAsync(x => x.Id == staff.UserId, ct);
@@ -61,7 +63,7 @@ public static class StaffEndpoints
             zones.Where(z => z.LocationId == l.Id).Select(z => new ZoneView(z.Id, z.Name, z.PricePerHourMinorUnits)).ToList(),
             edges.Where(e => e.LocationId == l.Id).Select(e => e.ToView(now)).ToList())).ToList();
 
-        return Results.Ok(new MeResponse(user.ToView(org.Name), views));
+        return Results.Ok(new MeResponse(user.ToView(org.Name, tokens.MfaSetupRequired(user)), views));
     }
 
     private static async Task<IResult> ListDevices(string locationId, HttpContext http, ClubOsDbContext db,

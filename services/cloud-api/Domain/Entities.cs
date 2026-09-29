@@ -74,6 +74,48 @@ public sealed class User
 
     public DateTimeOffset? PasswordChangedAtUtc { get; set; }
     public DateTimeOffset? LastLoginAtUtc { get; set; }
+
+    // ---- MFA (TOTP, ТЗ §8) ----
+
+    public bool MfaEnabled { get; set; }
+
+    /// <summary>Секрет TOTP, зашифрованный <c>SecretProtector</c> (AES-GCM). В открытом виде в БД не хранится.</summary>
+    public string? MfaSecretProtected { get; set; }
+
+    /// <summary>Секрет на этапе настройки (до подтверждения первым кодом).</summary>
+    public string? MfaPendingSecretProtected { get; set; }
+
+    public DateTimeOffset? MfaPendingCreatedAtUtc { get; set; }
+
+    /// <summary>Последний принятый шаг TOTP — повтор того же кода отклоняется.</summary>
+    public long MfaLastUsedStep { get; set; }
+
+    public DateTimeOffset? MfaEnabledAtUtc { get; set; }
+}
+
+/// <summary>Одноразовый код восстановления MFA; хранится SHA-256 хэш (код — 50 бит случайности).</summary>
+public sealed class MfaRecoveryCode
+{
+    public required string Id { get; set; }
+    public required string UserId { get; set; }
+    public required string CodeHash { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset? UsedAtUtc { get; set; }
+}
+
+/// <summary>
+/// Второй шаг входа: выдаётся после верного пароля, если у сотрудника включена MFA. Действует 5 минут,
+/// не больше 5 попыток ввода кода. Хранится хэш токена.
+/// </summary>
+public sealed class MfaChallenge
+{
+    public required string Id { get; set; }
+    public required string UserId { get; set; }
+    public required string TokenHash { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset ExpiresAtUtc { get; set; }
+    public int Attempts { get; set; }
+    public DateTimeOffset? ConsumedAtUtc { get; set; }
 }
 
 /// <summary>Refresh-токен с ротацией: хранится только SHA-256 хэш (ТЗ §27.3).</summary>

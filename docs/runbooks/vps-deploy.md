@@ -87,6 +87,10 @@ cd infrastructure/vps && docker compose up -d --build
 
 Миграции БД применяются автоматически при старте Cloud API. Перед обновлением сделайте бэкап.
 
+**Обновление до M1 (2FA):** для Owner и Admin двухфакторная аутентификация обязательна. После обновления
+при входе владелец увидит только «Мой пароль» с настройкой 2FA. Нужен телефон с приложением-аутентификатором
+(Google Authenticator, Microsoft Authenticator, Aegis). Сохраните коды восстановления.
+
 **Порядок обновления:** сначала Edge в клубах ([edge-windows-install.md](edge-windows-install.md), п. 6),
 затем Cloud на VPS. Новый Edge совместим со старым Cloud. Если Cloud оказался новее Edge, команды неизвестного
 вида (например, «Продлить» из M1) Edge пропускает с предупреждением в журнале, остальная очередь работает.
@@ -97,6 +101,8 @@ cd infrastructure/vps && docker compose up -d --build
 |---------|-------------|
 | Сайт не открывается / ошибка сертификата | `docker compose logs caddy`: DNS A-запись, открыт ли 80/443 |
 | Забыт или скомпрометирован пароль владельца | `docker compose exec cloud-api dotnet ClubOS.CloudApi.dll admin reset-password <email>`: временный пароль, при входе потребуется задать новый |
+| Владелец потерял телефон с 2FA и коды восстановления | `docker compose exec cloud-api dotnet ClubOS.CloudApi.dll admin reset-mfa <email>`: 2FA отключена, при входе потребуется настроить заново. Сотруднику 2FA сбрасывает владелец: «Персонал» → «Сбросить 2FA» |
+| Сменили `CLUBOS_AUTH_SIGNING_KEY` — 2FA перестала принимать коды | секреты TOTP зашифрованы ключом, выведенным из ключа подписи. Задайте отдельный `CLUBOS_Auth__MfaEncryptionKey` до смены ключа подписи, иначе сбросьте 2FA всем (`admin reset-mfa`) |
 | Не входит в Admin Web | `docker compose logs admin-web cloud-api`; 429 — сработал лимит попыток входа (20 в минуту с IP) |
 | «Edge не на связи» | на сервере клуба `edge-cli status` и Event Viewer (источник ClubOSEdge); `docker compose logs cloud-api` |
 | Место на диске | `docker system df`; старые образы — `docker image prune` |

@@ -15,6 +15,9 @@ public sealed class TokenService(ClubOsDbContext db, IOptions<AuthOptions> optio
 {
     private readonly AuthOptions _options = options.Value;
 
+    /// <summary>Роль требует MFA (Auth:MfaRequiredRoles), а сотрудник её ещё не включил.</summary>
+    public bool MfaSetupRequired(User user) => !user.MfaEnabled && _options.IsMfaRequired(user.Role);
+
     public async Task<IssuedTokens> IssueAsync(User user, CancellationToken ct)
     {
         var now = time.GetUtcNow();
@@ -28,6 +31,7 @@ public sealed class TokenService(ClubOsDbContext db, IOptions<AuthOptions> optio
             new Claim("role", user.Role),
             new Claim(StaffContext.TokenVersionClaim, user.TokenVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)),
             new Claim(StaffContext.MustChangePasswordClaim, user.MustChangePassword ? "1" : "0"),
+            new Claim(StaffContext.MfaSetupRequiredClaim, MfaSetupRequired(user) ? "1" : "0"),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N"))
         };
 

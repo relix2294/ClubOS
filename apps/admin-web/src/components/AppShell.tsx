@@ -49,13 +49,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   });
   const live = useLive();
   const mustChangePassword = me?.user.mustChangePassword === true;
+  // Временный пароль или не настроенная обязательная 2FA: до исправления доступна только страница «Мой пароль».
+  const restricted = mustChangePassword || me?.user.mfaSetupRequired === true;
 
   // Временный пароль: до смены доступна только страница «Мой пароль» (backend тоже запрещает остальное).
   useEffect(() => {
-    if (mustChangePassword && pathname !== "/account") {
+    if (restricted && pathname !== "/account") {
       router.replace("/account");
     }
-  }, [mustChangePassword, pathname, router]);
+  }, [restricted, pathname, router]);
 
   if (error && !me) {
     return (
@@ -87,7 +89,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const can = (permission: Permission) => me.user.permissions.includes(permission);
   const nav = allNav.filter((item) => !item.permission || can(item.permission));
 
-  if (mustChangePassword && pathname !== "/account") {
+  if (restricted && pathname !== "/account") {
     return (
       <div className="mx-auto max-w-3xl p-8">
         <Loading />
@@ -170,9 +172,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               </button>
             </div>
           </header>
-          {mustChangePassword && (
+          {restricted && (
             <div role="alert" className="border-b border-amber-300 bg-amber-50 px-6 py-3 text-sm text-amber-900">
-              {t.account.mustChangeBanner}
+              {mustChangePassword ? t.account.mustChangeBanner : t.account.mfaSetupBanner}
             </div>
           )}
           <main className="flex-1 p-6">{children}</main>

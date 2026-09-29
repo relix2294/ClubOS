@@ -13,6 +13,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using ClubOS.CloudApi.Live;
+using ClubOS.CloudApi.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -32,6 +33,8 @@ builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOpt
 builder.Services.Configure<SeedOptions>(builder.Configuration.GetSection(SeedOptions.Section));
 builder.Services.AddSingleton<SigningKeyProvider>();
 builder.Services.AddScoped<TokenService>();
+builder.Services.AddSingleton<SecretProtector>();
+builder.Services.AddScoped<MfaService>();
 builder.Services.AddScoped<AuditWriter>();
 builder.Services.AddScoped<SyncIngestor>();
 builder.Services.AddSingleton<CommandExpiryService>();
@@ -87,7 +90,7 @@ foreach (var permission in ClubOS.CloudApi.Security.Permissions.All)
         .RequireAuthenticatedUser()
         .RequireClaim(StaffContext.TenantClaim)
         .RequireAssertion(ctx =>
-            ctx.User.FindFirst(StaffContext.MustChangePasswordClaim)?.Value != "1" &&
+            !StaffContext.IsRestricted(ctx.User) &&
             ClubOS.CloudApi.Security.Permissions.Has(ctx.User.FindFirst("role")?.Value ?? string.Empty, permission)));
 }
 
@@ -168,6 +171,7 @@ app.MapStaffEndpoints();
 app.MapStaffManagementEndpoints();
 app.MapEdgeEndpoints();
 app.MapLiveEndpoints();
+app.MapMfaEndpoints();
 
 await app.RunAsync();
 return 0;

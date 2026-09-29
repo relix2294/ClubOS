@@ -205,9 +205,7 @@ public static class StaffManagementEndpoints
         audit.Write(me.TenantId, null, me.Actor, "auth.password_changed", $"user:{user.Id}", AuditResults.Success);
         await db.SaveChangesAsync(ct);
 
-        var org = await db.Organizations.AsNoTracking().SingleAsync(x => x.Id == user.OrganizationId, ct);
-        return Results.Ok(new LoginResponse(issued.AccessToken, issued.AccessExpiresAtUtc, issued.RefreshToken,
-            issued.RefreshExpiresAtUtc, user.ToView(org.Name)));
+        return Results.Ok(await AuthEndpoints.BuildResponse(db, tokens, user, issued, ct));
     }
 
     private static Task<User?> FindInTenant(ClubOsDbContext db, StaffContext me, string userId, CancellationToken ct) =>

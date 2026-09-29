@@ -15,6 +15,10 @@ public static class Problems
         Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Conflict", detail: detail,
             extensions: new Dictionary<string, object?> { ["code"] = code });
 
+    public static IResult Forbidden(string detail) =>
+        Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Forbidden", detail: detail,
+            extensions: new Dictionary<string, object?> { ["code"] = "forbidden" });
+
     public static IResult Unauthorized(string detail) =>
         Results.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized", detail: detail,
             extensions: new Dictionary<string, object?> { ["code"] = "unauthorized" });

@@ -37,6 +37,8 @@ services:
       CLUBOS_ConnectionStrings__ClubOs: Host=postgres;Port=5432;Database=clubos;Username=clubos;Password=${CLUBOS_DB_PASSWORD}
       CLUBOS_Auth__SigningKey: ${CLUBOS_AUTH_SIGNING_KEY:?задайте CLUBOS_AUTH_SIGNING_KEY в .env}
       # Seed создаёт организацию/локацию/зоны и первого Owner при первом запуске; повторно ничего не дублирует.
+      # MFA (TOTP) обязательна для этих ролей: после входа без MFA доступна только её настройка.
+      CLUBOS_Auth__MfaRequiredRoles: ${CLUBOS_MFA_REQUIRED_ROLES-Owner,Admin}
       CLUBOS_Seed__Enabled: "true"
       CLUBOS_Seed__OwnerEmail: ${CLUBOS_OWNER_EMAIL:?задайте CLUBOS_OWNER_EMAIL в .env}
       CLUBOS_Seed__OwnerPassword: ${CLUBOS_OWNER_PASSWORD:?задайте CLUBOS_OWNER_PASSWORD в .env}

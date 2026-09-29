@@ -27,6 +27,14 @@ Tenant берётся только из JWT. Чужие объекты возв�
 | POST | `/api/v1/enrollment-tokens/device` | `enrollment.manage`. `{locationId, zoneId, displayName, simulated}` → одноразовый токен (24 ч) |
 | POST | `/api/v1/enrollment-tokens/edge` | `enrollment.manage`. `{locationId, name}` → одноразовый токен Edge |
 | POST | `/api/v1/me/password` | любой сотрудник: `{currentPassword, newPassword}` → новые токены; прочие сессии отзываются |
+| POST | `/api/v1/auth/login` | при включённой 2FA вместо токенов: `{mfaRequired: true, mfaToken, expiresAtUtc}` (5 мин) |
+| POST | `/api/v1/auth/mfa` | анонимно: `{mfaToken, code}` или `{mfaToken, recoveryCode}` → токены. Не больше 5 попыток на `mfaToken`; код одного 30-секундного шага принимается один раз |
+| GET | `/api/v1/me/mfa` | `{enabled, required, recoveryCodesLeft, enabledAtUtc}` |
+| POST | `/api/v1/me/mfa/setup` | секрет TOTP (Base32) и `otpauth://` URI для QR; действует 15 минут до подтверждения |
+| POST | `/api/v1/me/mfa/enable` | `{code}` → `{session: LoginResponse, recoveryCodes[10]}`; прочие сессии отзываются |
+| POST | `/api/v1/me/mfa/disable` | `{password, code \| recoveryCode}`; нельзя, если роль требует MFA (**409**) |
+| POST | `/api/v1/me/mfa/recovery-codes` | `{code}` → новые 10 кодов, старые недействительны |
+| POST | `/api/v1/staff/{id}/reset-mfa` | `staff.manage`: отключить 2FA сотрудника (потерял телефон), все его сессии отозваны; себе — нельзя |
 | GET | `/api/v1/staff` | `staff.manage`: сотрудники организации |
 | POST | `/api/v1/staff` | `staff.manage`: `{email, displayName, role}` → `{user, temporaryPassword}` (показывается один раз) |
 | POST | `/api/v1/staff/{id}/role` | `staff.manage`: `{role}`; последнего активного Owner понизить нельзя |
@@ -47,7 +55,14 @@ Tenant берётся только из JWT. Чужие объекты возв�
 Токен проверяется по БД на каждом запросе (активность, роль, версия токенов): отключение,
 смена роли или пароля действуют сразу. С временным паролем доступны только `/me` и `/me/password`.
 
-Восстановление доступа (на сервере): `docker compose exec cloud-api dotnet ClubOS.CloudApi.dll admin reset-password <email>`.
+Восстановление доступа (на сервере): `docker compose exec cloud-api dotnet ClubOS.CloudApi.dll admin reset-password <email>`,
+при потере телефона с 2FA — `admin reset-mfa <email>`.
+
+**2FA (TOTP, RFC 6238).** Обязательна для ролей из `Auth:MfaRequiredRoles` (на VPS по умолчанию Owner, Admin;
+в dev-стеке добровольная). Пока сотрудник такой роли не настроил 2FA, его токен несёт claim `mfs=1`: доступны
+только `/me`, `/me/password` и `/me/mfa/*`, как при временном пароле. Секрет TOTP хранится зашифрованным
+(AES-256-GCM, ключ из `Auth:MfaEncryptionKey` или выведен из ключа подписи). Коды восстановления хранятся
+хэшами и работают один раз.
 | GET | `/health/live`, `/health/ready` | liveness / readiness (PostgreSQL) |
 
 Rate limit на `/auth/*` и enrollment: `RateLimits:AuthPerMinute` (по умолчанию 20 запросов в минуту с одного IP).

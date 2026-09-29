@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useShell } from "@/components/AppShell";
+import { MfaCard } from "@/components/MfaCard";
 import { Button, Card, Field, inputClass } from "@/components/ui";
 import { roleLabel, t } from "@/lib/i18n";
 
@@ -81,6 +82,8 @@ export default function AccountPage() {
           </Button>
         </form>
       </Card>
+      {/* 2FA — после смены временного пароля (Cloud не даёт настраивать её с временным паролем). */}
+      {!me.user.mustChangePassword && <MfaCard />}
     </div>
   );
 }
