@@ -1,6 +1,7 @@
 using ClubOS.Agent.Core;
 using ClubOS.Agent.Core.PlayerShell;
 using ClubOS.Agent.Service;
+using Microsoft.Extensions.Hosting.WindowsServices;
 using Microsoft.Extensions.Logging.EventLog;
 using Microsoft.Extensions.Options;
 
@@ -26,8 +27,12 @@ builder.Configuration.AddCommandLine(args);
 
 const string ServiceName = "ClubOSAgent";
 builder.Services.AddWindowsService(o => o.ServiceName = ServiceName);
-// Источник Event Log = имя службы (регистрируется install-agent.ps1); по умолчанию было бы имя сборки.
-builder.Services.Configure<EventLogSettings>(o => o.SourceName = ServiceName);
+// Источник Event Log = имя службы (регистрирует install-agent.ps1). Только в режиме службы: в консольном запуске
+// незарегистрированный источник (регистрация требует прав администратора) уронил бы процесс на первой записи.
+if (WindowsServiceHelpers.IsWindowsService())
+{
+    builder.Services.Configure<EventLogSettings>(o => o.SourceName = ServiceName);
+}
 builder.Services.Configure<AgentOptions>(o =>
 {
     o.DataPath = defaultDataPath;

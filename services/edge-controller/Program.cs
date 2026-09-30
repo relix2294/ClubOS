@@ -29,9 +29,10 @@ builder.Configuration.AddEnvironmentVariables("CLUBOS_");
 builder.Configuration.AddCommandLine(args);
 
 builder.Services.AddWindowsService(o => o.ServiceName = ServiceName);
-if (OperatingSystem.IsWindows())
+if (OperatingSystem.IsWindows() && WindowsServiceHelpers.IsWindowsService())
 {
-    // Источник Event Log = имя службы (регистрируется install-edge.ps1).
+    // Источник Event Log = имя службы (регистрирует install-edge.ps1). В консольном запуске источник не задаём:
+    // без регистрации (нужны права администратора) первая же запись в журнал уронила бы Edge.
     builder.Services.Configure<EventLogSettings>(WindowsHosting.UseServiceEventSource);
 }
 builder.Services.Configure<EdgeOptions>(o =>
