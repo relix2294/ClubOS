@@ -189,7 +189,7 @@ jobs:
         run: |
           docker compose up -d --build --wait postgres cloud-api admin-web
           docker compose up -d --build edge-controller
-          docker compose --profile simulator up -d --build device-simulator
+          docker compose --profile simulator up -d --build device-simulator diskless-simulator
       - name: Wait for 5 simulated devices online
         run: |
           TOKEN=$(curl -sf -X POST localhost:5080/api/v1/auth/login -H 'content-type: application/json' \
