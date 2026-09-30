@@ -62,6 +62,8 @@ using var edgeHttp = new HttpClient(EdgeTls.CreateHandler(() => edgeCa, fingerpr
     Timeout = TimeSpan.FromSeconds(40)
 };
 var devices = new List<SimDevice>();
+// Демо-зал на VPS: токены заранее созданы seed'ом из общего секрета — вход сотрудника (с 2FA) не нужен.
+var demoSecret = Environment.GetEnvironmentVariable("CLUBOS_SIM_DEMO_SECRET");
 
 for (var i = 1; i <= opts.Count; i++)
 {
@@ -70,7 +72,11 @@ for (var i = 1; i <= opts.Count; i++)
     var identity = new AgentIdentityStore(dataPath, new FileKeyProtector());
     string? enrollmentToken = null;
 
-    if (identity.Current is null)
+    if (identity.Current is null && !string.IsNullOrWhiteSpace(demoSecret))
+    {
+        enrollmentToken = DemoEnrollment.DeviceToken(demoSecret, i);
+    }
+    else if (identity.Current is null)
     {
         try
         {

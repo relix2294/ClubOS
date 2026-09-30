@@ -4,6 +4,10 @@
 #   cd infrastructure/vps && cp .env.example .env && nano .env
 #   docker compose up -d --build
 #
+# Демо-зал для теста без железа (Edge + 5 SIMULATED ПК в отдельной локации «Демо-зал (симулятор)»):
+#   задайте CLUBOS_DEMO_SECRET в .env, затем
+#   docker compose --profile demo up -d --build
+#
 # Наружу открыты только 80/443 (Caddy). База и Cloud API доступны лишь внутри docker-сети.
 
 name: clubos-cloud
@@ -45,6 +49,10 @@ services:
       CLUBOS_Seed__OwnerDisplayName: ${CLUBOS_OWNER_NAME:-Владелец}
       CLUBOS_Seed__OrganizationName: ${CLUBOS_ORGANIZATION_NAME:-Demo Club Group}
       CLUBOS_Seed__LocationName: ${CLUBOS_LOCATION_NAME:-Dushanbe Pilot}
+      # Демо-зал (профиль demo): отдельная локация и одноразовые токены её Edge и симулированных ПК.
+      CLUBOS_Seed__DemoSecret: ${CLUBOS_DEMO_SECRET:-}
+      # Подпись тела запросов Edge (D-007). false — только на время перехода, пока в клубе старый Edge (до M1 TLS).
+      CLUBOS_Pki__RequireEdgeRequestBinding: ${CLUBOS_REQUIRE_EDGE_BINDING:-true}
       # Cloud API доступен только через Caddy — доверяем X-Forwarded-* (реальный IP для rate limit).
       CLUBOS_Proxy__TrustForwardedHeaders: "true"
     volumes:
@@ -85,8 +93,47 @@ services:
       - caddy_data:/data
       - caddy_config:/config
 
+  # ---------- Профиль demo: демо-зал без железа ----------
+  # Edge и симулятор живут во внутренней docker-сети (порты наружу не открыты). Симулятор ходит к Edge по HTTP 7070:
+  # сеть внутренняя, а отпечаток CA без входа сотрудника (2FA) ему не получить. Настоящие ПК клуба — только HTTPS 7443.
+  edge-demo:
+    profiles: ["demo"]
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/edge-controller.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      cloud-api:
+        condition: service_healthy
+    environment:
+      CLUBOS_Edge__CloudUrl: http://cloud-api:8080
+      CLUBOS_Edge__EnrollmentToken: ${CLUBOS_DEMO_SECRET:-}-edge
+      CLUBOS_Edge__TlsHostNames: edge-demo
+    volumes:
+      - edgedemo:/data/edge
+
+  simulator-demo:
+    profiles: ["demo"]
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/device-simulator.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - edge-demo
+    environment:
+      CLUBOS_SIM_EDGE_URL: http://edge-demo:7070
+      CLUBOS_SIM_CLOUD_URL: http://cloud-api:8080
+      CLUBOS_SIM_DEMO_SECRET: ${CLUBOS_DEMO_SECRET:-}
+      CLUBOS_SIM_SHELL: Enforced
+    volumes:
+      - simdemo:/data/sim
+    stdin_open: true
+    tty: true
+
 volumes:
   pgdata:
   devca:
   caddy_data:
   caddy_config:
+  edgedemo:
+  simdemo:

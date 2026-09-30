@@ -53,6 +53,24 @@ docker compose logs -f caddy        # «certificate obtained successfully» дл
 
 PostgreSQL и Cloud API напрямую из интернета недоступны.
 
+## 3a. Демо-зал для теста без железа (профиль `demo`)
+
+Отдельная локация «Демо-зал (симулятор)» с собственным Edge и 5 SIMULATED ПК (Standard 120 и VIP 180 TJS/час).
+Нужна, чтобы проверить сессии, Player Shell, кассу и отчёты сразу после развёртывания. Основная локация остаётся
+свободной для настоящего Edge клуба (одна локация — один Edge).
+
+```bash
+echo "CLUBOS_DEMO_SECRET=$(openssl rand -hex 24)" >> .env
+docker compose --profile demo up -d --build
+docker compose logs -f simulator-demo      # 5 строк «Агент … (SIM-PC-0N) запущен»
+```
+
+В Admin Web выберите в шапке локацию «Демо-зал (симулятор)». Edge и симулятор работают во внутренней docker-сети,
+наружу ничего не открывают. Выключить: `docker compose --profile demo stop edge-demo simulator-demo`.
+Токены демо-зала одноразовые и выводятся из `CLUBOS_DEMO_SECRET`: секрет не меняйте после первого запуска.
+
+Полная проверка всех функций для тестировщика: [acceptance-test.md](acceptance-test.md).
+
 ## 4. Подключение клуба
 
 1. Admin Web → **Подключение** → «Токен для Edge Controller» → скопировать (одноразовый, 24 часа).
@@ -81,8 +99,9 @@ docker compose exec -T cloud-api tar -C /data -xzf - < clubos-devca-<время>
 ## 6. Обновление
 
 ```bash
-cd /opt/ClubOS && git pull
-cd infrastructure/vps && docker compose up -d --build
+cd /opt/ClubOS && git fetch origin && git checkout claude/summary-recap-pt1bjq && git pull   # ветка M1 (PR #2), после слияния — main
+cd infrastructure/vps && docker compose up -d --build            # с демо-залом: docker compose --profile demo up -d --build
+docker compose ps                                                # cloud-api (healthy)
 ```
 
 Миграции БД применяются автоматически при старте Cloud API. Перед обновлением сделайте бэкап.
@@ -90,6 +109,10 @@ cd infrastructure/vps && docker compose up -d --build
 **Обновление до M1 (2FA):** для Owner и Admin двухфакторная аутентификация обязательна. После обновления
 при входе владелец увидит только «Мой пароль» с настройкой 2FA. Нужен телефон с приложением-аутентификатором
 (Google Authenticator, Microsoft Authenticator, Aegis). Сохраните коды восстановления.
+
+**Обновление до M1 (HTTPS 7443 и подпись тела, D-007):** новый Cloud отклоняет запросы старого Edge (401), пока
+тот не обновлён. Если Edge в клубе уже стоит, обновите сначала его. Если так нельзя, временно добавьте в `.env`
+`CLUBOS_REQUIRE_EDGE_BINDING=false`, обновите Edge и уберите строку (`docker compose up -d`).
 
 **Порядок обновления:** сначала Edge в клубах ([edge-windows-install.md](edge-windows-install.md), п. 6),
 затем Cloud на VPS. Новый Edge совместим со старым Cloud. Если Cloud оказался новее Edge, команды неизвестного

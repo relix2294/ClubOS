@@ -162,6 +162,7 @@ jobs:
         run: |
           cp infrastructure/vps/.env.example infrastructure/vps/.env
           docker compose -f infrastructure/vps/docker-compose.yml config -q
+          docker compose -f infrastructure/vps/docker-compose.yml --profile demo config -q
           docker run --rm -v "$PWD/infrastructure/vps/Caddyfile:/etc/caddy/Caddyfile:ro" \
             -e CLUBOS_DOMAIN=localhost -e CLUBOS_ACME_EMAIL=ci@example.tj caddy:2 caddy validate --config /etc/caddy/Caddyfile
           rm infrastructure/vps/.env
