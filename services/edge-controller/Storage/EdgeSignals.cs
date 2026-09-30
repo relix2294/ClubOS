@@ -10,6 +10,13 @@ public sealed class EdgeSignals
 {
     private readonly ConcurrentDictionary<string, TaskCompletionSource> _devices = new();
     private TaskCompletionSource _outbox = NewTcs();
+    private TaskCompletionSource _config = NewTcs();
+
+    /// <summary>Cloud сообщил об изменении устройств (RefreshConfig): перечитать конфигурацию, не дожидаясь таймера.</summary>
+    public void NotifyConfigChanged() => Interlocked.Exchange(ref _config, NewTcs()).TrySetResult();
+
+    public Task WaitConfigAsync(TimeSpan timeout, CancellationToken ct) =>
+        Task.WhenAny(Volatile.Read(ref _config).Task, Task.Delay(timeout, ct));
 
     public void NotifyOutbox() => Interlocked.Exchange(ref _outbox, NewTcs()).TrySetResult();
 

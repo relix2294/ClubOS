@@ -17,9 +17,15 @@ public sealed class AgentRuntime(
     CommandExecutor executor,
     PlayerShellController shell,
     TimeProvider time,
-    ILogger<AgentRuntime> logger)
+    ILogger<AgentRuntime> logger,
+    IHardwareIdentity? hardware = null)
 {
+    /// <summary>Столько 401 подряд — бездисковый ПК заново получает сертификат у Edge (Edge переустановлен или ПК удалён).</summary>
+    public const int DisklessRebootAfterUnauthorized = 3;
+
+    private readonly IHardwareIdentity _hardware = hardware ?? new NetworkHardwareIdentity(options);
     private int _heartbeats;
+    private int _unauthorized;
 
     public string? DeviceId => identity.Current?.DeviceId;
 
@@ -32,11 +38,26 @@ public sealed class AgentRuntime(
     {
         // Player Shell стартует до enrollment: незарегистрированный ПК в режиме Enforced тоже закрыт экраном клуба.
         var shellLoop = shell.RunAsync(ct);
+        if (options.Diskless)
+        {
+            // Бездисковый ПК: identity из общего образа или прошлой загрузки не используется — новый ключ каждую загрузку.
+            identity.Reset();
+        }
+
         await EnsureEdgeTrustAsync(ct);
-        await EnsureEnrolledAsync(ct);
+        if (options.Diskless)
+        {
+            await EnsureDisklessBootAsync(rotateKey: false, ct);
+        }
+        else
+        {
+            await EnsureEnrolledAsync(ct);
+        }
+
         logger.LogInformation("Агент {DeviceId} ({Name}) запущен, Edge: {EdgeUrl}", identity.Current!.DeviceId,
             identity.Current.DisplayName, options.EdgeUrl);
-        await Task.WhenAll(HeartbeatLoop(ct), CommandLoop(ct), RenewalLoop(ct), shellLoop);
+        // Сертификат бездискового ПК обновляется при каждой загрузке — продление через Cloud ему не нужно.
+        await Task.WhenAll(HeartbeatLoop(ct), CommandLoop(ct), options.Diskless ? Task.CompletedTask : RenewalLoop(ct), shellLoop);
     }
 
     /// <summary>
@@ -129,6 +150,66 @@ public sealed class AgentRuntime(
         }
     }
 
+    /// <summary>
+    /// Бездисковый ПК (D-018): сертификат у Edge по MAC. Пока ПК не подтверждён в Admin Web, на экране клуба
+    /// видна подсказка с MAC, агент повторяет запрос. <paramref name="rotateKey"/> — новый ключ (повторная загрузка
+    /// без перезапуска: Edge перестал принимать прежний).
+    /// </summary>
+    public async Task EnsureDisklessBootAsync(bool rotateKey, CancellationToken ct)
+    {
+        var key = rotateKey ? identity.RotateKey() : identity.GetOrCreatePendingKey();
+        var delay = TimeSpan.FromSeconds(2);
+        string? lastNotice = null;
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var hw = _hardware.Collect();
+                var response = await edge.DisklessBootAsync(new DisklessBootRequest
+                {
+                    HardwareId = hw.HardwareId,
+                    MacAddresses = hw.MacAddresses,
+                    Inventory = inventory.Collect(),
+                    CertificateSigningRequestPem = key.CreateSigningRequestPem("clubos-device"),
+                    Simulated = options.SimulatedDevice
+                }, ct);
+                if (response is { Status: DisklessBootStatus.Approved, Enrollment: { } enrolled })
+                {
+                    identity.Save(new AgentIdentity
+                    {
+                        DeviceId = enrolled.DeviceId,
+                        DisplayName = enrolled.DisplayName,
+                        CertificatePem = enrolled.DeviceCertificatePem,
+                        CertificateExpiresAtUtc = enrolled.CertificateExpiresAtUtc,
+                        CaCertificatePem = enrolled.CaCertificatePem ?? identity.TrustedCaPem
+                    });
+                    shell.SetNotice(null);
+                    logger.LogInformation("Бездисковый ПК подтверждён: {DeviceId} ({Name}), MAC {Mac}", enrolled.DeviceId,
+                        enrolled.DisplayName, HardwareIds.FormatMac(hw.HardwareId));
+                    return;
+                }
+
+                var notice = response.Message ?? $"Ожидание Edge (MAC {HardwareIds.FormatMac(hw.HardwareId)})";
+                if (notice != lastNotice)
+                {
+                    logger.LogWarning("{Notice}", notice);
+                    lastNotice = notice;
+                }
+
+                shell.SetNotice(notice);
+                delay = TimeSpan.FromSeconds(2);
+                await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(response.RetryAfterSeconds, 3, 60)), time, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning("Загрузка бездискового ПК не удалась ({Error}), повтор через {Delay} с", ex.Message, delay.TotalSeconds);
+                await Task.Delay(delay, time, ct);
+                delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, options.MaxBackoffSeconds));
+            }
+        }
+    }
+
     public async Task EnsureEnrolledAsync(CancellationToken ct)
     {
         var delay = TimeSpan.FromSeconds(2);
@@ -196,6 +277,18 @@ public sealed class AgentRuntime(
                     {
                         shell.Apply(state);
                     }
+
+                    _unauthorized = 0;
+                }
+                catch (EdgeRequestException ex) when (ex.Status == 401 && options.Diskless &&
+                                                      ++_unauthorized >= DisklessRebootAfterUnauthorized)
+                {
+                    // Edge не узнаёт ключ бездискового ПК (Edge переустановлен, ПК удалён или загрузился «двойник»):
+                    // получить сертификат заново; удалённый ПК снова окажется в «Ожидают подтверждения».
+                    _heartbeats = 0;
+                    _unauthorized = 0;
+                    logger.LogWarning("Edge не принимает ключ бездискового ПК — повторная загрузка");
+                    await EnsureDisklessBootAsync(rotateKey: true, ct);
                 }
                 catch (EdgeRequestException ex) when (ex.Status == 401)
                 {

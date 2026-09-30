@@ -36,6 +36,7 @@ public sealed class EdgeHost : IAsyncDisposable
             b.UseEnvironment("Testing");
             b.UseSetting("Edge:DataPath", dataPath);
             b.UseSetting("Edge:CloudUrl", "http://localhost");
+            b.UseSetting("Edge:DisklessConflictSeconds", "3");
             b.UseSetting("Edge:EnrollmentToken", enrollmentToken ?? string.Empty);
             b.UseSetting("Edge:LocalApiEnforceLoopback", "false");
             b.UseSetting("Edge:StatusReportSeconds", "1");
@@ -80,7 +81,8 @@ public sealed class AgentHost : IAsyncDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _run;
 
-    public AgentHost(EdgeHost edge, string dataPath, string enrollmentToken, int renewBeforeDays = 30)
+    /// <param name="disklessMac">Бездисковый ПК (D-018): MAC вместо токена, identity не хранится между «загрузками».</param>
+    public AgentHost(EdgeHost edge, string dataPath, string? enrollmentToken, int renewBeforeDays = 30, string? disklessMac = null)
     {
         Presenter = new CountingPresenter();
         var identity = new AgentIdentityStore(dataPath, new FileKeyProtector());
@@ -89,6 +91,8 @@ public sealed class AgentHost : IAsyncDisposable
         {
             EdgeUrl = "http://localhost",
             EnrollmentToken = enrollmentToken,
+            Diskless = disklessMac is not null,
+            HardwareIdOverride = disklessMac,
             DataPath = dataPath,
             HeartbeatSeconds = 1,
             CommandPollSeconds = 2,

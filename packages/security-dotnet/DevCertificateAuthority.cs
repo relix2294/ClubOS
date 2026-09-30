@@ -34,7 +34,8 @@ public sealed class DevCertificateAuthority : IDisposable
     public string CertificatePem => Certificate.ExportCertificatePem();
 
     /// <summary>Загружает CA из каталога или создаёт новый (первый запуск).</summary>
-    public static DevCertificateAuthority LoadOrCreate(string directory, TimeProvider time)
+    public static DevCertificateAuthority LoadOrCreate(string directory, TimeProvider time,
+        string subject = "CN=ClubOS Development CA, O=ClubOS (DEV ONLY)")
     {
         Directory.CreateDirectory(directory);
         var keyPath = Path.Combine(directory, KeyFile);
@@ -49,7 +50,7 @@ public sealed class DevCertificateAuthority : IDisposable
         }
 
         var newKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var request = new CertificateRequest("CN=ClubOS Development CA, O=ClubOS (DEV ONLY)", newKey, HashAlgorithmName.SHA256);
+        var request = new CertificateRequest(subject, newKey, HashAlgorithmName.SHA256);
         request.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, true, 0, true));
         request.CertificateExtensions.Add(new X509KeyUsageExtension(
             X509KeyUsageFlags.KeyCertSign | X509KeyUsageFlags.CrlSign, true));

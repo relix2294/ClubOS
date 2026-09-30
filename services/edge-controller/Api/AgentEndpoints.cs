@@ -18,6 +18,7 @@ public static class AgentEndpoints
         group.MapGet("/commands", Commands);
         group.MapPost("/commands/{commandId}/result", Result);
         group.MapPost("/renew", Renew);
+        group.MapPost("/diskless/boot", DisklessBoot.Boot);
 
         // Публичный сертификат dev CA — агент сверяет его с отпечатком из Admin Web перед первой регистрацией (D-007).
         group.MapGet("/ca", (EdgeIdentityStore identity) => identity.Current is null
@@ -36,6 +37,12 @@ public static class AgentEndpoints
         if (deviceId is null)
         {
             return Results.Unauthorized();
+        }
+
+        if (store.GetDevice(deviceId)?.Diskless == true)
+        {
+            // Сертификат бездискового ПК — от локального CA Edge и обновляется при каждой загрузке (D-018).
+            return Results.Problem(statusCode: 409, title: "Бездисковый ПК получает сертификат при загрузке.");
         }
 
         try

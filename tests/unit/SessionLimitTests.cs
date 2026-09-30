@@ -48,7 +48,7 @@ public class SessionLimitTests : IDisposable
     }
 
     [Fact]
-    public void Database_is_migrated_to_schema_v2() => Assert.Equal(2, _db.SchemaVersion);
+    public void Database_is_migrated_to_current_schema() => Assert.Equal(3, _db.SchemaVersion); // v2 — лимиты сессий, v3 — бездисковые ПК
 
     [Fact]
     public async Task Limited_session_has_planned_end_in_state_and_event()

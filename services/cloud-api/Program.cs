@@ -178,6 +178,7 @@ app.MapMfaEndpoints();
 app.MapLocationEndpoints();
 app.MapRevocationEndpoints();
 app.MapCashEndpoints();
+app.MapDisklessEndpoints();
 
 await app.RunAsync();
 return 0;

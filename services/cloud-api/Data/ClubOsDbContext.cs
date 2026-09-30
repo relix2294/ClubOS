@@ -23,6 +23,7 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
     public DbSet<CashShift> CashShifts => Set<CashShift>();
     public DbSet<CashOperation> CashOperations => Set<CashOperation>();
+    public DbSet<PendingDisklessDevice> PendingDisklessDevices => Set<PendingDisklessDevice>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -113,6 +114,11 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.TenantId, x.LocationId });
             e.Property(x => x.Status).HasConversion<string>();
+            e.Property(x => x.HardwareId).HasMaxLength(32);
+            // Один активный бездисковый ПК на MAC в организации.
+            e.HasIndex(x => new { x.TenantId, x.HardwareId }).IsUnique()
+                .HasFilter("\"HardwareId\" IS NOT NULL AND \"RevokedAtUtc\" IS NULL")
+                .HasDatabaseName("IX_devices_active_hardware");
             e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<Zone>().WithMany().HasForeignKey(x => x.ZoneId).OnDelete(DeleteBehavior.Restrict);
         });
@@ -163,6 +169,18 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.HasIndex(x => new { x.TenantId, x.OccurredAtUtc });
             e.HasIndex(x => x.Target);
             e.Property(x => x.DetailsJson).HasColumnType("jsonb");
+        });
+
+        b.Entity<PendingDisklessDevice>(e =>
+        {
+            e.ToTable("pending_diskless_devices");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.LocationId, x.HardwareId }).IsUnique();
+            e.Property(x => x.HardwareId).HasMaxLength(32);
+            e.Property(x => x.MacAddresses).HasMaxLength(400);
+            e.Property(x => x.Hostname).HasMaxLength(64);
+            e.Property(x => x.Ipv4).HasMaxLength(45);
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<CashShift>(e =>

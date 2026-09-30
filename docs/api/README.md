@@ -23,6 +23,9 @@ Tenant берётся только из JWT. Чужие объекты возв�
 | POST | `/api/v1/sessions/{sessionId}/end` | запрос завершения (идемпотентно): **202**, или **200** если уже завершена/запрошена |
 | POST | `/api/v1/devices/{deviceId}/revoke` | `enrollment.manage`: удалить (отозвать) устройство. **409**, если идёт сессия. Edge получает `RevokeDevice`, история сохраняется |
 | POST | `/api/v1/edges/{edgeId}/revoke` | `enrollment.manage`: отключить Edge. Его запросы получают **401**; для локации нужен новый Edge |
+| GET | `/api/v1/locations/{locationId}/diskless-candidates` | `enrollment.manage`: бездисковые ПК, ожидающие подтверждения (D-018): MAC, имя в Windows, IP, когда загружался |
+| POST | `/api/v1/diskless-candidates/{id}/approve` | `enrollment.manage`: `{displayName, zoneId}` → устройство с `hardwareId` (MAC); Edge получает `RefreshConfig` и выдаёт ПК сертификат при следующей попытке загрузки (≤ 10 с) |
+| POST | `/api/v1/diskless-candidates/{id}/dismiss` | `enrollment.manage`: убрать из списка (ПК появится снова при следующей загрузке) |
 | GET | `/api/v1/pki/ca` | `enrollment.manage`: `{fingerprintSha256, expiresAtUtc}` — отпечаток CA организации для `install-agent.ps1 -EdgeCaFingerprint` |
 | GET | `/api/v1/live` | `devices.view`: поток Server-Sent Events. События: `ready`; `change` с `{topic, locationId, deviceId, id}`, где topic — `devices`/`commands`/`sessions`/`audit`/`edges`/`staff` (аудит — только с `audit.view`, персонал — только с `staff.manage`); `resync` — клиент отстал, перечитать всё; `ping` раз в 15 с; `reauth` — токен истёк или доступ отозван, поток закрывается. Только tenant сотрудника. Admin Web подключается через BFF `/api/live` |
 | POST | `/api/v1/sessions/{sessionId}/extend` | `{minutes: 1..720}` — продление сессии с лимитом (суммарно не больше 24 ч). **202**; новое `plannedEndAtUtc` приходит событием `SessionExtended` от Edge. **409** — сессия не идёт или без лимита |
@@ -140,6 +143,7 @@ HTTPS 7443: сертификат Edge выпускает dev CA организа
 
 | Метод | Путь | Назначение |
 |-------|------|-----------|
+| POST | `/agent/v1/diskless/boot` | анонимно: `DisklessBootRequest` `{hardwareId (MAC), macAddresses, inventory, certificateSigningRequestPem}` → `{status: Approved/Pending/Conflict, enrollment?, retryAfterSeconds, message}`. Approved — сертификат локального CA Edge на deviceId подтверждённого ПК (D-018) |
 | GET | `/agent/v1/ca` | анонимно: `{caCertificatePem}` — CA организации для первичной проверки по отпечатку (503 до регистрации Edge) |
 | POST | `/agent/v1/enroll` | анонимно: `DeviceEnrollRequest` → `DeviceEnrollResponse` (через Cloud; в ответе и `caCertificatePem`) |
 | POST | `/agent/v1/heartbeat` | `HeartbeatMessage` каждые 10 с (статус агента `Idle` / `Locked` / `Maintenance`); инвентаризация примерно раз в 5 мин. В ответе тот же `state` |

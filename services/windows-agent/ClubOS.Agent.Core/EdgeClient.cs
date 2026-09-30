@@ -15,6 +15,14 @@ public sealed class EdgeClient(HttpClient http, AgentIdentityStore identity, Tim
         return (await response.Content.ReadFromJsonAsync<DeviceEnrollResponse>(ContractJson.Options, ct))!;
     }
 
+    /// <summary>Загрузка бездискового ПК (D-018): анонимно, идентичность — MAC; ответ Approved/Pending/Conflict.</summary>
+    public async Task<DisklessBootResponse> DisklessBootAsync(DisklessBootRequest request, CancellationToken ct)
+    {
+        using var response = await http.PostAsJsonAsync("agent/v1/diskless/boot", request, ContractJson.Options, ct);
+        await EnsureSuccess(response, ct);
+        return (await response.Content.ReadFromJsonAsync<DisklessBootResponse>(ContractJson.Options, ct))!;
+    }
+
     public Task<HeartbeatAck> HeartbeatAsync(HeartbeatMessage heartbeat, CancellationToken ct) =>
         SendAsync<HeartbeatAck>(HttpMethod.Post, "agent/v1/heartbeat", heartbeat, ct);
 

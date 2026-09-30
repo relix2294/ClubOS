@@ -56,6 +56,12 @@ public sealed record EdgeDeviceConfig
     public required string ZoneId { get; init; }
     public required bool Simulated { get; init; }
     public required string CertificatePem { get; init; }
+
+    /// <summary>
+    /// Бездисковый ПК (D-018): аппаратный идентификатор (MAC загрузочной сетевой карты). Сертификата от Cloud нет —
+    /// при каждой загрузке Edge выдаёт ключу агента сертификат своего локального CA. null — обычный ПК.
+    /// </summary>
+    public string? HardwareId { get; init; }
 }
 
 /// <summary>Пакет событий Edge → Cloud. Повторная отправка безопасна (UNIQUE eventId).</summary>
@@ -97,7 +103,10 @@ public enum EdgeCommandKind
     ExtendSession,
 
     /// <summary>Устройство удалено в Admin Web: Edge забывает его сертификат (D-011).</summary>
-    RevokeDevice
+    RevokeDevice,
+
+    /// <summary>Изменился список устройств (например, подтверждён бездисковый ПК): Edge сразу перечитывает конфигурацию.</summary>
+    RefreshConfig
 }
 
 /// <summary>Элемент очереди Cloud → Edge. Edge дедуплицирует по <see cref="Id"/>.</summary>
@@ -196,6 +205,21 @@ public sealed record EdgeStatusReport
     public required DateTimeOffset EdgeClockUtc { get; init; }
     public required int PendingOutboxEvents { get; init; }
     public required IReadOnlyList<DeviceStatusEntry> Devices { get; init; }
+
+    /// <summary>Бездисковые ПК, которые загрузились, но ещё не подтверждены в Admin Web (D-018).</summary>
+    public IReadOnlyList<DisklessCandidate> DisklessCandidates { get; init; } = [];
+}
+
+/// <summary>Неподтверждённый бездисковый ПК, как его видит Edge.</summary>
+public sealed record DisklessCandidate
+{
+    public required string HardwareId { get; init; }
+    public required IReadOnlyList<string> MacAddresses { get; init; }
+    public required string Hostname { get; init; }
+    public string? Ipv4 { get; init; }
+    public bool Simulated { get; init; }
+    public required DateTimeOffset FirstSeenUtc { get; init; }
+    public required DateTimeOffset LastSeenUtc { get; init; }
 }
 
 public sealed record DeviceStatusEntry

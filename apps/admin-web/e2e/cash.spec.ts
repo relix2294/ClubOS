@@ -38,9 +38,11 @@ test("касса: смена → оплата завершённой сесси�
   await page.getByRole("link", { name: "Касса" }).first().click();
   await expect(page.getByRole("heading", { name: "Касса" })).toBeVisible();
 
-  // Смена могла остаться от прошлого прогона — закрываем без расхождения.
+  // Смена могла остаться от прошлого прогона — закрываем без расхождения. Сначала дождаться загрузки кассы:
+  // isVisible() не ждёт.
   const leftover = page.getByRole("form", { name: "Закрыть смену" });
-  if (await leftover.isVisible({ timeout: 3_000 }).catch(() => false)) {
+  await expect(leftover.or(page.getByRole("form", { name: "Открыть смену" }))).toBeVisible();
+  if (await leftover.isVisible()) {
     const expected = minor(await page.getByTestId("expected-cash").innerText());
     await leftover.getByLabel(/Пересчитано наличных/).fill((expected / 100).toFixed(2).replace(".", ","));
     page.once("dialog", (d) => void d.accept());

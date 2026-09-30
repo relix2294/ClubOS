@@ -9,10 +9,11 @@ namespace ClubOS.EdgeController.Api;
 /// CN = deviceId, подпись/срок/jti. Валидатор живёт весь процесс — кэш jti против повторов.
 /// </summary>
 public sealed class AgentAuth(EdgeIdentityStore identity, EdgeStore store, TimeProvider time,
-    Microsoft.Extensions.Options.IOptions<EdgeOptions> options, ILogger<AgentAuth> logger)
+    Microsoft.Extensions.Options.IOptions<EdgeOptions> options, DisklessAuthority diskless, ILogger<AgentAuth> logger)
 {
     private readonly Lock _gate = new();
     private SignedTokenValidator? _validator;
+    private SignedTokenValidator? _disklessValidator;
 
     public string? Authenticate(HttpContext http)
     {
@@ -35,7 +36,16 @@ public sealed class AgentAuth(EdgeIdentityStore identity, EdgeStore store, TimeP
             return null;
         }
 
-        var result = Validator().Validate(token, device.CertificatePem, SignedToken.AudienceEdge,
+        // Бездисковый ПК (D-018): сертификат последней загрузки от локального CA Edge; обычный — от CA Cloud.
+        if (device.Diskless && device.LocalCertificatePem is null)
+        {
+            return null;
+        }
+
+        var (validator, certificate) = device.Diskless
+            ? (DisklessValidator(), device.LocalCertificatePem!)
+            : (Validator(), device.CertificatePem);
+        var result = validator.Validate(token, certificate, SignedToken.AudienceEdge,
             DevCertificateAuthority.RoleDevice, SignedBody.Binding(http), options.Value.RequireAgentRequestBinding);
         if (!result.Success)
         {
@@ -44,6 +54,14 @@ public sealed class AgentAuth(EdgeIdentityStore identity, EdgeStore store, TimeP
         }
 
         return deviceId;
+    }
+
+    private SignedTokenValidator DisklessValidator()
+    {
+        lock (_gate)
+        {
+            return _disklessValidator ??= new SignedTokenValidator(diskless.Ca.Certificate, time);
+        }
     }
 
     private SignedTokenValidator Validator()

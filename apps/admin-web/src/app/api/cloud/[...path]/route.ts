@@ -32,6 +32,8 @@ const ALLOWED = [
   /^cash\/shifts\/[\w-]+(\/close)?$/,
   /^sessions\/[\w-]+\/(payments|refunds)$/,
   /^reports\/revenue$/,
+  /^locations\/[\w-]+\/diskless-candidates$/,
+  /^diskless-candidates\/[\w-]+\/(approve|dismiss)$/,
 ];
 // Смена своего пароля идёт через /api/auth/password (BFF обновляет cookie).
 

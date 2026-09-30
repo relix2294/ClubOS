@@ -37,7 +37,20 @@ try {
         }
     }
 
-    $token = Ask 'Одноразовый токен ПК (пусто — если ПК уже зарегистрирован)'
+    Write-Host ''
+    Write-Host 'ПК загружаются по сети без своего диска (CCBoot, iCafeCloud и т.п.)?'
+    Write-Host '  нет — обычный ПК с диском: нужен одноразовый токен этого ПК'
+    Write-Host '  да  — ставьте ОДИН раз в образ (режим супер-клиента); токен не нужен, каждый ПК'
+    Write-Host '        при загрузке появится в Admin Web → «Устройства» → «Ожидают подтверждения»'
+    $diskless = (Ask 'Бездисковый режим (да/нет)' 'нет') -match '^(д|да|y|yes)$'
+
+    $token = ''
+    if (-not $diskless) {
+        $token = Ask 'Одноразовый токен ПК (пусто — если ПК уже зарегистрирован)'
+    }
+    elseif (-not $fingerprint -and -not $reinstall) {
+        throw 'Бездисковый режим требует адрес https://… и отпечаток CA.'
+    }
 
     Write-Host ''
     Write-Host 'Экран клуба (Player Shell):'
@@ -50,6 +63,7 @@ try {
     $install = @{ EdgeUrl = $edgeUrl; ShellMode = $mode }
     if ($fingerprint) { $install.EdgeCaFingerprint = $fingerprint }
     if ($token) { $install.EnrollmentToken = $token }
+    if ($diskless) { $install.Diskless = $true }
     if ($mode -ne 'Off') {
         Write-Host 'PIN техника: Ctrl+Shift+F12 на экране клуба → режим обслуживания на 15 минут.'
         $pin = Read-Host -AsSecureString 'PIN техника, 6–12 цифр (пусто — оставить прежний)'
@@ -58,7 +72,12 @@ try {
 
     & (Join-Path $here 'install-agent.ps1') @install
     Write-Host ''
-    Write-Host 'Готово. Через 10–20 секунд ПК появится в Admin Web → «Устройства».' -ForegroundColor Green
+    if ($diskless) {
+        Write-Host 'Готово. Сохраните образ. Каждый ПК при загрузке появится в Admin Web → «Устройства» → «Ожидают подтверждения».' -ForegroundColor Green
+    }
+    else {
+        Write-Host 'Готово. Через 10–20 секунд ПК появится в Admin Web → «Устройства».' -ForegroundColor Green
+    }
 }
 catch {
     Write-Host ''

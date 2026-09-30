@@ -64,15 +64,21 @@ using var edgeHttp = new HttpClient(EdgeTls.CreateHandler(() => edgeCa, fingerpr
 var devices = new List<SimDevice>();
 // Демо-зал на VPS: токены заранее созданы seed'ом из общего секрета — вход сотрудника (с 2FA) не нужен.
 var demoSecret = Environment.GetEnvironmentVariable("CLUBOS_SIM_DEMO_SECRET");
+// Бездисковые ПК (D-018): токенов нет, каждый ПК получает сертификат у Edge по MAC после подтверждения в Admin Web.
+var diskless = string.Equals(Environment.GetEnvironmentVariable("CLUBOS_SIM_DISKLESS"), "true", StringComparison.OrdinalIgnoreCase);
 
 for (var i = 1; i <= opts.Count; i++)
 {
-    var name = $"SIM-PC-{i:D2}";
+    var name = diskless ? $"DL-PC-{i:D2}" : $"SIM-PC-{i:D2}";
     var dataPath = Path.Combine(opts.StateDir, name);
     var identity = new AgentIdentityStore(dataPath, new FileKeyProtector());
     string? enrollmentToken = null;
 
-    if (identity.Current is null && !string.IsNullOrWhiteSpace(demoSecret))
+    if (diskless)
+    {
+        // Токен не нужен: ПК появится в «Ожидают подтверждения».
+    }
+    else if (identity.Current is null && !string.IsNullOrWhiteSpace(demoSecret))
     {
         enrollmentToken = DemoEnrollment.DeviceToken(demoSecret, i);
     }
@@ -96,6 +102,10 @@ for (var i = 1; i <= opts.Count; i++)
         // Каждый ПК закрепляет CA сам, как настоящий агент (EnsureEdgeTrustAsync).
         EdgeCaFingerprint = fingerprint,
         EnrollmentToken = enrollmentToken,
+        Diskless = diskless,
+        // Локально администрируемый MAC (02:…), постоянный для номера ПК — как у настоящей сетевой карты.
+        HardwareIdOverride = diskless ? $"02:C1:0B:5D:00:{i:X2}" : null,
+        SimulatedDevice = true,
         DataPath = dataPath,
         HeartbeatSeconds = 10,
         CommandPollSeconds = 20,
@@ -249,7 +259,7 @@ internal sealed record SimOptions(string EdgeUrl, string CloudUrl, string Email,
             Get("cloud-url") ?? Environment.GetEnvironmentVariable("CLUBOS_SIM_CLOUD_URL") ?? "http://localhost:5080",
             Get("email") ?? Environment.GetEnvironmentVariable("CLUBOS_SIM_EMAIL") ?? "owner@demo.clubos.local",
             Get("password") ?? Environment.GetEnvironmentVariable("CLUBOS_SIM_PASSWORD"),
-            int.TryParse(Get("count"), out var c) ? Math.Clamp(c, 1, 50) : 5,
+            int.TryParse(Get("count") ?? Environment.GetEnvironmentVariable("CLUBOS_SIM_COUNT"), out var c) ? Math.Clamp(c, 1, 50) : 5,
             Get("state-dir") ?? Environment.GetEnvironmentVariable("CLUBOS_SIM_STATE") ?? "sim-data",
             Get("location") ?? Environment.GetEnvironmentVariable("CLUBOS_SIM_LOCATION"),
             // Player Shell симулированных ПК: состояние экрана видно в логе и в команде list.

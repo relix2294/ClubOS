@@ -45,6 +45,22 @@ export interface DeviceView {
   activeSession: SessionView | null;
   /** Срок сертификата устройства; агент продлевает его сам за 30 дней. */
   certificateExpiresAtUtc: string;
+  /** Бездисковый ПК (D-018): MAC загрузочной карты; сертификат выдаёт Edge при каждой загрузке. */
+  hardwareId: string | null;
+}
+
+/** Бездисковый ПК, который загрузился в клубе и ждёт подтверждения (D-018). */
+export interface PendingDisklessView {
+  candidateId: string;
+  locationId: string;
+  hardwareId: string;
+  mac: string;
+  macAddresses: string[];
+  hostname: string;
+  ipv4: string | null;
+  simulated: boolean;
+  firstSeenUtc: string;
+  lastSeenUtc: string;
 }
 
 // ---- Команды (ТЗ §10.2, §24.3) ----

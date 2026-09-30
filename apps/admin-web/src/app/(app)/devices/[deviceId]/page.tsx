@@ -80,7 +80,11 @@ function InventoryCard({ device, timezone }: { device: DeviceView; timezone: str
     : [];
   rows.push([t.dashboard.lastHeartbeat, formatDateTime(device.lastHeartbeatUtc, timezone)]);
   rows.push([t.device.enrolled, formatDateTime(device.enrolledAtUtc, timezone)]);
-  rows.push([t.device.certificate, formatDateTime(device.certificateExpiresAtUtc, timezone)]);
+  if (device.hardwareId) {
+    rows.push([t.diskless.mode, `MAC ${device.hardwareId}`]);
+  } else {
+    rows.push([t.device.certificate, formatDateTime(device.certificateExpiresAtUtc, timezone)]);
+  }
 
   return (
     <Card title={t.device.inventory}>

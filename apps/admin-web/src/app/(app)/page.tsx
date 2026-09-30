@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import type { DeviceStatus, DeviceView } from "@clubos/contracts";
+import { useState } from "react";
+import type { DeviceStatus, DeviceView, PendingDisklessView } from "@clubos/contracts";
 import { useShell } from "@/components/AppShell";
 import { IconServer } from "@/components/icons";
 import { SessionTimer } from "@/components/SessionTimer";
 import { DeviceStatusBadge } from "@/components/StatusBadge";
-import { Card, EmptyState, ErrorState, Loading, SimulatedBadge } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorState, Loading, SimulatedBadge } from "@/components/ui";
 import { apiGet, apiPost } from "@/lib/api";
 import { formatAgo, formatDateTime } from "@/lib/format";
 import { deviceStatusLabel, t } from "@/lib/i18n";
@@ -43,6 +44,7 @@ export default function DashboardPage() {
       </div>
 
       <EdgePanel />
+      <DisklessPanel />
 
       {loading && !devices && <Loading />}
       {error && <ErrorState error={error} onRetry={refresh} />}
@@ -71,6 +73,11 @@ export default function DashboardPage() {
                       </div>
                       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                         {d.simulated && <SimulatedBadge />}
+                        {d.hardwareId && (
+                          <span title={`MAC ${d.hardwareId}`} className="rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold text-sky-800">
+                            {t.diskless.badge}
+                          </span>
+                        )}
                         {d.inventory && (
                           <span>
                             {d.inventory.hostname} · {d.inventory.ipv4}
@@ -90,6 +97,98 @@ export default function DashboardPage() {
           );
         })}
     </div>
+  );
+}
+
+/** Бездисковые ПК, ждущие подтверждения (D-018). Видит тот, кто может подключать ПК. */
+function DisklessPanel() {
+  const { location, can } = useShell();
+  const allowed = can("enrollment.manage");
+  const pending = usePolling(
+    (signal) =>
+      allowed
+        ? apiGet<PendingDisklessView[]>(`locations/${location.locationId}/diskless-candidates`, signal)
+        : Promise.resolve([] as PendingDisklessView[]),
+    15_000,
+    [location.locationId, allowed],
+    { topics: ["devices"], locationId: location.locationId },
+  );
+
+  if (!allowed || !pending.data || pending.data.length === 0) return null;
+  return (
+    <Card title={`${t.diskless.title} · ${pending.data.length}`} className="border-sky-300">
+      <p className="mb-3 text-sm text-slate-600">{t.diskless.intro}</p>
+      <ul className="flex flex-col divide-y divide-slate-100" data-testid="diskless-pending">
+        {pending.data.map((c) => (
+          <DisklessRow key={c.candidateId} candidate={c} onDone={pending.refresh} />
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function DisklessRow({ candidate, onDone }: { candidate: PendingDisklessView; onDone: () => void }) {
+  const { location } = useShell();
+  const now = useNow(15_000);
+  const [name, setName] = useState(candidate.hostname && candidate.hostname !== "-" ? candidate.hostname : "PC-");
+  const [zoneId, setZoneId] = useState(location.zones[0]?.zoneId ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const act = async (action: () => Promise<unknown>) => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await action();
+      onDone();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <li className="flex flex-wrap items-end gap-3 py-3" data-testid="diskless-row" data-mac={candidate.mac}>
+      <div className="min-w-48 text-sm">
+        <div className="font-mono font-semibold text-slate-900">{candidate.mac}</div>
+        <div className="text-xs text-slate-500">
+          {candidate.hostname}
+          {candidate.ipv4 ? ` · ${candidate.ipv4}` : ""} · {t.diskless.seen} {formatAgo(candidate.lastSeenUtc, now)}
+          {candidate.simulated && " · SIMULATED"}
+        </div>
+      </div>
+      <label className="flex flex-col gap-1 text-xs text-slate-600">
+        {t.diskless.name}
+        <input aria-label={t.diskless.name} className="rounded-lg border border-slate-300 px-2 py-1 text-sm" maxLength={64} value={name} onChange={(e) => setName(e.target.value)} />
+      </label>
+      <label className="flex flex-col gap-1 text-xs text-slate-600">
+        {t.diskless.zone}
+        <select aria-label={t.diskless.zone} className="rounded-lg border border-slate-300 px-2 py-1 text-sm" value={zoneId} onChange={(e) => setZoneId(e.target.value)}>
+          {location.zones.map((z) => (
+            <option key={z.zoneId} value={z.zoneId}>
+              {z.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <Button className="py-1" disabled={busy || !name.trim()} onClick={() => act(() => apiPost(`diskless-candidates/${candidate.candidateId}/approve`, { displayName: name.trim(), zoneId }))}>
+        {t.diskless.approve}
+      </Button>
+      <Button
+        variant="secondary"
+        className="py-1"
+        disabled={busy}
+        onClick={() => window.confirm(t.diskless.dismissConfirm) && act(() => apiPost(`diskless-candidates/${candidate.candidateId}/dismiss`))}
+      >
+        {t.diskless.dismiss}
+      </Button>
+      {error && (
+        <p role="alert" className="w-full text-sm text-red-700">
+          {error}
+        </p>
+      )}
+    </li>
   );
 }
 

@@ -140,6 +140,25 @@ services:
     stdin_open: true
     tty: true
 
+  # Бездисковые ПК демо-зала (D-018): 3 ПК без токенов — появляются в «Ожидают подтверждения», после
+  # подтверждения получают сертификат у Edge. Перезапуск контейнера = перезагрузка ПК (новый ключ, тот же ПК).
+  simulator-diskless:
+    profiles: ["demo"]
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/device-simulator.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - edge-demo
+    environment:
+      CLUBOS_SIM_EDGE_URL: http://edge-demo:7070
+      CLUBOS_SIM_CLOUD_URL: http://cloud-api:8080
+      CLUBOS_SIM_DISKLESS: "true"
+      CLUBOS_SIM_COUNT: "3"
+      CLUBOS_SIM_SHELL: Enforced
+    stdin_open: true
+    tty: true
+
 volumes:
   pgdata:
   devca:

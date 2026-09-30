@@ -45,6 +45,12 @@ public sealed class EdgeOptions
 
     public int StatusReportSeconds { get; set; } = 5;
     public int ConfigRefreshSeconds { get; set; } = 60;
+
+    /// <summary>
+    /// Бездисковый ПК (D-018): если ПК с тем же MAC присылал heartbeat не позже стольких секунд назад, новая загрузка
+    /// отклоняется (второй экземпляр или подмена MAC). Перезагрузка настоящего ПК обычно дольше.
+    /// </summary>
+    public int DisklessConflictSeconds { get; set; } = 20;
     public int CommandLongPollSeconds { get; set; } = 20;
     public int MaxBackoffSeconds { get; set; } = 30;
 

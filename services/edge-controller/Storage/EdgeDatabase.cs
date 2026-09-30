@@ -94,6 +94,14 @@ public sealed class EdgeDatabase : IDisposable
             Exec(connection, tx, "PRAGMA user_version = 2;");
             tx.Commit();
         }
+
+        if (version < 3)
+        {
+            using var tx = connection.BeginTransaction();
+            Exec(connection, tx, Schema.V3);
+            Exec(connection, tx, "PRAGMA user_version = 3;");
+            tx.Commit();
+        }
     }
 
     public int SchemaVersion => Convert.ToInt32(Read(c => Scalar(c, "PRAGMA user_version;")));
@@ -206,6 +214,26 @@ public sealed class EdgeDatabase : IDisposable
             ALTER TABLE sessions ADD COLUMN end_reason TEXT NULL;
             CREATE INDEX ix_sessions_planned_end ON sessions(planned_end_at_utc) WHERE state = 'Active';
             CREATE INDEX ix_sessions_device_ended ON sessions(device_id, ended_at_utc);
+            """;
+
+        /// <summary>
+        /// M1: бездисковые ПК (D-018). hardware_id — MAC загрузочной карты (из конфигурации Cloud);
+        /// local_certificate_pem — сертификат локального CA Edge, выданный при последней загрузке ПК.
+        /// </summary>
+        public const string V3 = """
+            ALTER TABLE devices ADD COLUMN hardware_id TEXT NULL;
+            ALTER TABLE devices ADD COLUMN local_certificate_pem TEXT NULL;
+            CREATE UNIQUE INDEX ix_devices_hardware ON devices(hardware_id) WHERE hardware_id IS NOT NULL;
+
+            CREATE TABLE diskless_candidates (
+                hardware_id    TEXT PRIMARY KEY,
+                macs           TEXT NOT NULL,
+                hostname       TEXT NOT NULL,
+                ipv4           TEXT NULL,
+                simulated      INTEGER NOT NULL DEFAULT 0,
+                first_seen_utc TEXT NOT NULL,
+                last_seen_utc  TEXT NOT NULL
+            );
             """;
     }
 }

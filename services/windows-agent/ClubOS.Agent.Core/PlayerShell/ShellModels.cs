@@ -71,6 +71,9 @@ public sealed record ShellState
     public ShellSession? Session { get; init; }
     public ShellEnded? Ended { get; init; }
     public DateTimeOffset? MaintenanceUntilUtc { get; init; }
+
+    /// <summary>Служебная подсказка на экране клуба (например, «ПК ожидает подтверждения, MAC …»).</summary>
+    public string? Notice { get; init; }
 }
 
 public sealed record ShellSession

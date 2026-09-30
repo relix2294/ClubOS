@@ -19,6 +19,19 @@ public sealed class AgentOptions
     /// <summary>Одноразовый enrollment-токен (нужен только до первой регистрации).</summary>
     public string? EnrollmentToken { get; set; }
 
+    /// <summary>
+    /// Бездисковый ПК (D-018): диск сбрасывается при каждой загрузке, один образ на все ПК. Токен не нужен:
+    /// при запуске агент создаёт новый ключ и получает сертификат у Edge по MAC загрузочной карты;
+    /// новый ПК ждёт подтверждения в Admin Web. Сохранённая identity (например, попавшая в образ) не используется.
+    /// </summary>
+    public bool Diskless { get; set; }
+
+    /// <summary>Аппаратный идентификатор вместо MAC сетевой карты (симулятор, отладка).</summary>
+    public string? HardwareIdOverride { get; set; }
+
+    /// <summary>Device Simulator: бездисковый ПК после подтверждения получит метку SIMULATED.</summary>
+    public bool SimulatedDevice { get; set; }
+
     /// <summary>Каталог identity/ключа/журнала исполненных команд.</summary>
     public string DataPath { get; set; } = "agent-data";
 

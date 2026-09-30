@@ -97,7 +97,8 @@ public sealed record DeviceView(
     DeviceInventory? Inventory,
     DateTimeOffset EnrolledAtUtc,
     SessionView? ActiveSession,
-    DateTimeOffset CertificateExpiresAtUtc);
+    DateTimeOffset CertificateExpiresAtUtc,
+    string? HardwareId = null);
 
 public sealed record IssueCommandRequest(
     CommandType CommandType,

@@ -217,6 +217,31 @@ public sealed class Device
     /// </summary>
     public DateTimeOffset? RevokedAtUtc { get; set; }
     public string? RevokedBy { get; set; }
+
+    /// <summary>
+    /// Бездисковый ПК (D-018): MAC загрузочной сетевой карты. Сертификат выдаёт локальный CA Edge при каждой загрузке,
+    /// поэтому <see cref="CertificatePem"/> пуст. null — обычный ПК с регистрацией по токену.
+    /// </summary>
+    public string? HardwareId { get; set; }
+}
+
+/// <summary>
+/// Бездисковый ПК, который загрузился в клубе, но ещё не подтверждён (D-018). Обновляется по отчётам Edge о статусе.
+/// Подтверждение создаёт <see cref="Device"/> и удаляет запись; отклонение — удаляет (ПК появится снова при загрузке).
+/// </summary>
+public sealed class PendingDisklessDevice
+{
+    public required string Id { get; set; }
+    public required string TenantId { get; set; }
+    public required string LocationId { get; set; }
+    public required string EdgeId { get; set; }
+    public required string HardwareId { get; set; }
+    public required string MacAddresses { get; set; }   // через запятую
+    public required string Hostname { get; set; }
+    public string? Ipv4 { get; set; }
+    public bool Simulated { get; set; }
+    public DateTimeOffset FirstSeenUtc { get; set; }
+    public DateTimeOffset LastSeenUtc { get; set; }
 }
 
 /// <summary>Команда устройству со своим жизненным циклом (ТЗ §10.2, §24.3).</summary>

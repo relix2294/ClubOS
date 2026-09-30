@@ -114,6 +114,23 @@ services:
     stdin_open: true
     tty: true
 
+  # Бездисковые ПК (D-018): 2 ПК без токенов, ждут подтверждения в Admin Web.
+  diskless-simulator:
+    profiles: ["simulator"]
+    build:
+      context: .
+      dockerfile: infrastructure/docker/device-simulator.Dockerfile
+    depends_on:
+      - edge-controller
+    environment:
+      CLUBOS_SIM_EDGE_URL: http://edge-controller:7070
+      CLUBOS_SIM_CLOUD_URL: http://cloud-api:8080
+      CLUBOS_SIM_DISKLESS: "true"
+      CLUBOS_SIM_COUNT: "2"
+      CLUBOS_SIM_SHELL: Enforced
+    stdin_open: true
+    tty: true
+
 volumes:
   pgdata:
   devca:

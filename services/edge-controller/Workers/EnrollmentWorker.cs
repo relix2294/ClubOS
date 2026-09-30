@@ -13,6 +13,7 @@ public sealed class EnrollmentWorker(
     EdgeIdentityStore identity,
     CloudClient cloud,
     EdgeStore store,
+    EdgeSignals signals,
     IOptions<EdgeOptions> options,
     TimeProvider time,
     ILogger<EnrollmentWorker> logger) : BackgroundService
@@ -62,7 +63,8 @@ public sealed class EnrollmentWorker(
             {
                 await store.SaveConfigAsync(await cloud.GetConfigAsync(stoppingToken), stoppingToken);
                 backoff.Reset();
-                await Delay(TimeSpan.FromSeconds(options.Value.ConfigRefreshSeconds), stoppingToken);
+                // Раз в минуту или сразу по команде RefreshConfig (подтверждён бездисковый ПК).
+                await signals.WaitConfigAsync(TimeSpan.FromSeconds(options.Value.ConfigRefreshSeconds), stoppingToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

@@ -114,7 +114,7 @@ internal sealed class ShellScreenForm : Form
             _summary.Visible = false;
         }
 
-        _status.Text = state.EdgeOnline ? string.Empty : ShellText.EdgeOffline;
+        _status.Text = state.Notice ?? (state.EdgeOnline ? string.Empty : ShellText.EdgeOffline);
         _hint.Text = ShellText.TechnicianHint;
         Tick();
     }

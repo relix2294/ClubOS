@@ -111,7 +111,8 @@ public static class EdgeEndpoints
                 DisplayName = d.DisplayName,
                 ZoneId = d.ZoneId,
                 Simulated = d.Simulated,
-                CertificatePem = d.CertificatePem
+                CertificatePem = d.CertificatePem,
+                HardwareId = d.HardwareId
             }).ToList(),
             RevokedDeviceIds = all.Where(x => x.RevokedAtUtc is not null).Select(x => x.Id).ToList()
         });
@@ -318,8 +319,67 @@ public static class EdgeEndpoints
             }
         }
 
+        await UpsertDisklessCandidatesAsync(db, edge, report.DisklessCandidates, time, ct);
         await db.SaveChangesAsync(ct);
         return Results.NoContent();
+    }
+
+    public const int MaxDisklessCandidates = 200;
+
+    /// <summary>Неподтверждённые бездисковые ПК из отчёта Edge → «Ожидают подтверждения» в Admin Web (D-018).</summary>
+    private static async Task UpsertDisklessCandidatesAsync(ClubOsDbContext db, EdgeContext edge,
+        IReadOnlyList<DisklessCandidate>? candidates, TimeProvider time, CancellationToken ct)
+    {
+        var seen = (candidates ?? [])
+            .Select(c => (Candidate: c, HardwareId: HardwareIds.NormalizeMac(c.HardwareId)))
+            .Where(x => x.HardwareId is not null)
+            .DistinctBy(x => x.HardwareId)
+            .Take(MaxDisklessCandidates)
+            .ToList();
+        if (seen.Count == 0)
+        {
+            return;
+        }
+
+        var ids = seen.Select(x => x.HardwareId!).ToList();
+        var bound = await db.Devices.Where(x => x.TenantId == edge.TenantId && x.RevokedAtUtc == null &&
+                                                x.HardwareId != null && ids.Contains(x.HardwareId))
+            .Select(x => x.HardwareId!).ToListAsync(ct);
+        var existing = await db.PendingDisklessDevices.Where(x => x.LocationId == edge.LocationId && ids.Contains(x.HardwareId))
+            .ToDictionaryAsync(x => x.HardwareId, ct);
+        var now = time.GetUtcNow();
+        foreach (var (candidate, hardwareId) in seen.Where(x => !bound.Contains(x.HardwareId!)))
+        {
+            var macs = string.Join(",", candidate.MacAddresses.Select(HardwareIds.NormalizeMac).OfType<string>().Distinct().Take(16));
+            if (existing.TryGetValue(hardwareId!, out var row))
+            {
+                // Отчёт приходит каждые несколько секунд: обновляем не чаще раза в минуту, чтобы не дёргать UI.
+                if (candidate.LastSeenUtc - row.LastSeenUtc > TimeSpan.FromMinutes(1) || row.Hostname != Trunc(candidate.Hostname, 64))
+                {
+                    row.LastSeenUtc = candidate.LastSeenUtc > now ? now : candidate.LastSeenUtc;
+                    row.Hostname = Trunc(candidate.Hostname, 64) ?? row.Hostname;
+                    row.Ipv4 = Trunc(candidate.Ipv4, 45);
+                    row.MacAddresses = macs;
+                }
+
+                continue;
+            }
+
+            db.PendingDisklessDevices.Add(new PendingDisklessDevice
+            {
+                Id = Ids.New("dlc"),
+                TenantId = edge.TenantId,
+                LocationId = edge.LocationId,
+                EdgeId = edge.EdgeId,
+                HardwareId = hardwareId!,
+                MacAddresses = macs,
+                Hostname = Trunc(candidate.Hostname, 64) ?? "PC",
+                Ipv4 = Trunc(candidate.Ipv4, 45),
+                Simulated = candidate.Simulated,
+                FirstSeenUtc = candidate.FirstSeenUtc > now ? now : candidate.FirstSeenUtc,
+                LastSeenUtc = candidate.LastSeenUtc > now ? now : candidate.LastSeenUtc
+            });
+        }
     }
 
     /// <summary>

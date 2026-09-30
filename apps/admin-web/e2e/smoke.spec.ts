@@ -26,7 +26,8 @@ test("неверный пароль не пускает в панель", async 
 test("login → устройства → карточка устройства", async ({ page }) => {
   await login(page);
 
-  const tiles = page.getByTestId("device-tile");
+  // Обычный ПК (с сертификатом); у бездискового в карточке MAC вместо срока сертификата — у него свой тест.
+  const tiles = page.getByTestId("device-tile").filter({ hasNotText: "Бездисковый" });
   await expect(tiles.first()).toBeVisible();
   await expect(page.getByTestId("edge-status").first()).toBeVisible();
 

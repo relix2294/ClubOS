@@ -79,6 +79,7 @@ builder.Services.AddSingleton<EdgeSignals>();
 builder.Services.AddSingleton(sp => new EdgeTlsCertificateStore(sp.GetRequiredService<IOptions<EdgeOptions>>().Value.DataPath));
 builder.Services.AddSingleton<EdgeStore>();
 builder.Services.AddSingleton<AgentAuth>();
+builder.Services.AddSingleton<DisklessAuthority>();
 builder.Services.AddSingleton<LocalAdminToken>();
 
 builder.Services.AddHttpClient(CloudClient.HttpClientName, (sp, http) =>

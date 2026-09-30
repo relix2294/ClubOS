@@ -31,6 +31,7 @@ public sealed class PlayerShellController : IShellInput
 
     private AgentDeviceState? _device;
     private TimeSpan _offset;
+    private string? _notice;
     private DateTimeOffset? _lastContactLocal;
     private DateTimeOffset? _maintenanceUntilLocal;
     private ShellState? _pushed;
@@ -102,6 +103,15 @@ public sealed class PlayerShellController : IShellInput
         }
     }
 
+    /// <summary>Подсказка на экране клуба (null — убрать). Показывается со следующим тиком.</summary>
+    public void SetNotice(string? notice)
+    {
+        lock (_gate)
+        {
+            _notice = notice;
+        }
+    }
+
     public ShellState Compute()
     {
         var localNow = _time.GetUtcNow();
@@ -117,7 +127,8 @@ public sealed class PlayerShellController : IShellInput
                 DeviceName = _device?.DeviceName ?? Environment.MachineName,
                 ClubName = _device?.LocationName,
                 ClockOffsetMs = (long)_offset.TotalMilliseconds,
-                EdgeOnline = edgeOnline
+                EdgeOnline = edgeOnline,
+                Notice = _notice
             };
 
             if (_options.Mode == ShellMode.Off)

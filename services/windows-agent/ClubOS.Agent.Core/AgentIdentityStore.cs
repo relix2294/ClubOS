@@ -68,6 +68,24 @@ public sealed class AgentIdentityStore
         return _key;
     }
 
+    /// <summary>Забыть identity и ключ (бездисковый ПК при загрузке: прежние файлы могли попасть в общий образ).</summary>
+    public void Reset()
+    {
+        File.Delete(_identityPath);
+        File.Delete(_keyPath);
+        Current = null;
+        _key = null;
+    }
+
+    /// <summary>Новый ключ вместо текущего; identity остаётся до получения нового сертификата.</summary>
+    public DeviceKey RotateKey()
+    {
+        var key = DeviceKey.Generate();
+        WritePrivate(_keyPath, _protector.Protect(Encoding.UTF8.GetBytes(key.ExportPrivateKeyPem())));
+        _key = key;
+        return key;
+    }
+
     public void Save(AgentIdentity identity)
     {
         var temp = _identityPath + ".tmp";

@@ -28,11 +28,14 @@ public sealed class StatusWorker(
             {
                 await store.MarkStaleDevicesOfflineAsync(TimeSpan.FromSeconds(o.HeartbeatTimeoutSeconds), stoppingToken);
                 await store.ExpireCommandsAsync(stoppingToken);
+                await store.PruneDisklessCandidatesAsync(TimeSpan.FromDays(7), stoppingToken);
                 await cloud.ReportStatusAsync(new EdgeStatusReport
                 {
                     EdgeClockUtc = time.GetUtcNow(),
                     PendingOutboxEvents = store.CountPendingEvents(),
-                    Devices = store.BuildStatusEntries()
+                    Devices = store.BuildStatusEntries(),
+                    // Ждут подтверждения и загружались в последние 10 минут (выключенные ПК из списка уходят сами).
+                    DisklessCandidates = store.ListDisklessCandidates(TimeSpan.FromMinutes(10))
                 }, stoppingToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

@@ -39,7 +39,8 @@ public static class Mapping
                 Ipv4 = d.Ipv4 ?? string.Empty,
                 AgentVersion = d.AgentVersion ?? string.Empty
             },
-        d.EnrolledAtUtc, activeSession, d.CertificateExpiresAtUtc);
+        d.EnrolledAtUtc, activeSession, d.CertificateExpiresAtUtc,
+        d.HardwareId is null ? null : ClubOS.Contracts.HardwareIds.FormatMac(d.HardwareId));
 
     public static CommandView ToView(this DeviceCommand c) => new(
         c.Id, c.CommandType, c.DeviceId, c.State, c.IssuedBy, c.IssuedAtUtc, c.ExpiresAtUtc, c.UpdatedAtUtc, c.Error,

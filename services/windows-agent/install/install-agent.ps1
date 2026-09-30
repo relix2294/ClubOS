@@ -24,6 +24,11 @@
   .\install-agent.ps1 -EdgeUrl http://192.168.1.10:7070 -EnrollmentToken <новый токен> -ReEnroll
 
 .EXAMPLE
+  # Бездисковые ПК (D-018): ставить ОДИН раз в образ в режиме супер-клиента. Токен не нужен —
+  # каждый ПК при загрузке получает сертификат у Edge по MAC, новые ПК подтверждаются в Admin Web.
+  .\install-agent.ps1 -Diskless -EdgeUrl https://192.168.1.10:7443 -EdgeCaFingerprint <отпечаток> -ShellMode Enforced -TechnicianPin (Read-Host -AsSecureString 'PIN')
+
+.EXAMPLE
   .\install-agent.ps1 -EdgeUrl http://192.168.1.10:7070 -ShellMode Enforced -TechnicianPin (Read-Host -AsSecureString 'PIN техника')
 #>
 [CmdletBinding()]
@@ -33,6 +38,8 @@ param(
     [ValidateSet('Off', 'Hud', 'Enforced')] [string] $ShellMode,
     [SecureString] $TechnicianPin,
     [switch] $ReEnroll,
+    # Бездисковая загрузка по сети: общий образ, диск сбрасывается при перезагрузке (D-018).
+    [switch] $Diskless,
     # Отпечаток CA из Admin Web → Подключение: нужен для EdgeUrl https://… (D-007).
     [string] $EdgeCaFingerprint,
     [string] $SourceDir = $PSScriptRoot,
@@ -75,8 +82,16 @@ if ($ReEnroll) {
     }
 }
 
+if ($Diskless) {
+    # В образ не должна попасть identity супер-клиента: каждый ПК получит свою при загрузке.
+    Write-Host "==> Бездисковый режим: identity не хранится в образе, ПК регистрируются по MAC"
+    foreach ($f in 'identity.json', 'device.key', 'executed-commands.json', 'shell-state.json') {
+        Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $DataDir $f)
+    }
+}
+
 $identityExists = Test-Path (Join-Path $DataDir 'identity.json')
-if (-not $identityExists -and [string]::IsNullOrWhiteSpace($EnrollmentToken)) {
+if (-not $Diskless -and -not $identityExists -and [string]::IsNullOrWhiteSpace($EnrollmentToken)) {
     throw 'Устройство ещё не зарегистрировано: укажите -EnrollmentToken (Admin Web → Подключение).'
 }
 
@@ -113,7 +128,11 @@ elseif ($previousAgent -and $previousAgent.EdgeCaFingerprint) { $agent.EdgeCaFin
 if ($EdgeUrl.StartsWith('https://') -and -not $agent.EdgeCaFingerprint -and -not $identityExists) {
     throw 'Для EdgeUrl https:// укажите -EdgeCaFingerprint (Admin Web → Подключение → «Отпечаток CA»).'
 }
-if (-not $identityExists) { $agent.EnrollmentToken = $EnrollmentToken }
+if ($Diskless) {
+    $agent.Diskless = $true
+    if (-not $EdgeUrl.StartsWith('https://')) { throw 'Бездисковый режим требует HTTPS: -EdgeUrl https://<IP Edge>:7443 и -EdgeCaFingerprint.' }
+}
+elseif (-not $identityExists) { $agent.EnrollmentToken = $EnrollmentToken }
 @{ Agent = $agent } | ConvertTo-Json -Depth 5 | Set-Content -Path $configPath -Encoding UTF8
 
 Write-Host "==> Служба $ServiceName"

@@ -13,7 +13,13 @@ public sealed record EdgeDevice(
     bool Online,
     DeviceStatus AgentStatus,
     DateTimeOffset? LastHeartbeatUtc,
-    DeviceInventory? Inventory);
+    DeviceInventory? Inventory,
+    string? HardwareId = null,
+    string? LocalCertificatePem = null)
+{
+    /// <summary>Бездисковый ПК: аутентифицируется сертификатом локального CA Edge (D-018).</summary>
+    public bool Diskless => HardwareId is not null;
+}
 
 public sealed record EdgeSession(
     string SessionId,
@@ -88,6 +94,19 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
             foreach (var d in config.Devices)
             {
                 UpsertDevice(c, tx, d.DeviceId, d.DisplayName, d.ZoneId, d.Simulated, d.CertificatePem);
+                var hardwareId = HardwareIds.NormalizeMac(d.HardwareId);
+                if (hardwareId is not null)
+                {
+                    // MAC мог перейти к другому устройству (старое удалено) — освобождаем его.
+                    c.Exec(tx, "UPDATE devices SET hardware_id = NULL, local_certificate_pem = NULL WHERE hardware_id = $hw AND device_id <> $id",
+                        ("$hw", hardwareId), ("$id", d.DeviceId));
+                    c.Exec(tx, """
+                        UPDATE devices SET hardware_id = $hw,
+                            local_certificate_pem = CASE WHEN hardware_id = $hw THEN local_certificate_pem ELSE NULL END
+                        WHERE device_id = $id
+                        """, ("$hw", hardwareId), ("$id", d.DeviceId));
+                    c.Exec(tx, "DELETE FROM diskless_candidates WHERE hardware_id = $hw", ("$hw", hardwareId));
+                }
             }
 
             // Страховка к команде RevokeDevice: отозванные устройства приходят и в конфигурации.
@@ -197,6 +216,83 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
         database.Read(c => c.Query(null, "SELECT * FROM devices WHERE device_id = $id", MapDevice, ("$id", deviceId))
             .FirstOrDefault());
 
+    // ---------- Бездисковые ПК (D-018) ----------
+
+    /// <summary>Сколько неподтверждённых ПК помнит Edge (защита от засорения анонимными запросами).</summary>
+    public const int MaxDisklessCandidates = 500;
+
+    public EdgeDevice? FindDeviceByHardware(string hardwareId) =>
+        database.Read(c => c.Query(null, "SELECT * FROM devices WHERE hardware_id = $hw", MapDevice, ("$hw", hardwareId))
+            .FirstOrDefault());
+
+    /// <summary>Сертификат локального CA для новой загрузки ПК: прежний ключ (прошлая загрузка) больше не принимается.</summary>
+    public async Task SetLocalCertificateAsync(string deviceId, string certificatePem, DeviceInventory inventory,
+        CancellationToken ct = default) =>
+        await database.WriteAsync((c, tx) => c.Exec(tx, """
+            UPDATE devices SET local_certificate_pem = $cert, inventory_json = $inv WHERE device_id = $id
+            """, ("$cert", certificatePem), ("$inv", JsonSerializer.Serialize(inventory, ContractJson.Options)), ("$id", deviceId)), ct);
+
+    /// <summary>Неизвестный бездисковый ПК загрузился: запомнить до подтверждения в Admin Web. false — список переполнен.</summary>
+    public async Task<bool> RecordDisklessCandidateAsync(DisklessBootRequest request, string hardwareId, CancellationToken ct = default)
+    {
+        var now = time.GetUtcNow();
+        var macs = string.Join(",", request.MacAddresses.Select(HardwareIds.NormalizeMac).OfType<string>().Distinct().Take(16));
+        return await database.WriteAsync((c, tx) =>
+        {
+            var exists = c.Scalar(tx, "SELECT 1 FROM diskless_candidates WHERE hardware_id = $hw", ("$hw", hardwareId)) is not null;
+            if (!exists && Convert.ToInt64(c.Scalar(tx, "SELECT COUNT(*) FROM diskless_candidates")) >= MaxDisklessCandidates)
+            {
+                return false;
+            }
+
+            c.Exec(tx, """
+                INSERT INTO diskless_candidates (hardware_id, macs, hostname, ipv4, simulated, first_seen_utc, last_seen_utc)
+                VALUES ($hw, $macs, $host, $ip, $sim, $now, $now)
+                ON CONFLICT(hardware_id) DO UPDATE SET macs = excluded.macs, hostname = excluded.hostname,
+                    ipv4 = excluded.ipv4, simulated = excluded.simulated, last_seen_utc = excluded.last_seen_utc
+                """, ("$hw", hardwareId), ("$macs", macs), ("$host", Trim(request.Inventory.Hostname, 64)),
+                ("$ip", Trim(request.Inventory.Ipv4, 45)), ("$sim", request.Simulated), ("$now", now));
+            return true;
+        }, ct);
+    }
+
+    /// <summary>ПК, загружавшиеся недавно и ещё не подтверждённые, — для отчёта в Cloud.</summary>
+    public IReadOnlyList<DisklessCandidate> ListDisklessCandidates(TimeSpan seenWithin)
+    {
+        var since = time.GetUtcNow() - seenWithin;
+        return ReadDisklessCandidates().Where(x => x.LastSeenUtc >= since).ToList();
+    }
+
+    private List<DisklessCandidate> ReadDisklessCandidates() =>
+        database.Read(c => c.Query(null, "SELECT * FROM diskless_candidates ORDER BY first_seen_utc", r => new DisklessCandidate
+        {
+            HardwareId = r.S("hardware_id"),
+            MacAddresses = r.S("macs").Split(',', StringSplitOptions.RemoveEmptyEntries),
+            Hostname = r.S("hostname"),
+            Ipv4 = r.Str("ipv4"),
+            Simulated = r.L("simulated") == 1,
+            FirstSeenUtc = r.T("first_seen_utc"),
+            LastSeenUtc = r.T("last_seen_utc")
+        })).ToList();
+
+    /// <summary>Забыть ПК, которые давно не загружались и так и не были подтверждены.</summary>
+    public async Task<int> PruneDisklessCandidatesAsync(TimeSpan olderThan, CancellationToken ct = default)
+    {
+        var cutoff = time.GetUtcNow() - olderThan;
+        var stale = ReadDisklessCandidates().Where(x => x.LastSeenUtc < cutoff)
+            .Select(x => x.HardwareId).ToList();
+        if (stale.Count == 0)
+        {
+            return 0;
+        }
+
+        return await database.WriteAsync((c, tx) => stale.Sum(hw =>
+            c.Exec(tx, "DELETE FROM diskless_candidates WHERE hardware_id = $hw", ("$hw", hw))), ct);
+    }
+
+    private static string Trim(string? value, int max) =>
+        string.IsNullOrWhiteSpace(value) ? "-" : value.Length <= max ? value.Trim() : value[..max].Trim();
+
     public IReadOnlyList<EdgeDevice> ListDevices() =>
         database.Read(c => c.Query(null, "SELECT * FROM devices ORDER BY display_name", MapDevice));
 
@@ -286,6 +382,7 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
     {
         var now = time.GetUtcNow();
         string? affectedDevice = null;
+        var refreshConfig = false;
         var applied = await database.WriteAsync((c, tx) =>
         {
             var inserted = c.Exec(tx, "INSERT OR IGNORE INTO inbox (id, kind, received_at_utc) VALUES ($id, $kind, $now)",
@@ -317,6 +414,9 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
                     affectedDevice = ExtendSessionCore(c, tx, extend.SessionId, extend.Minutes, extend.Actor, now)
                         .Session?.DeviceId;
                     break;
+                case EdgeCommandKind.RefreshConfig:
+                    refreshConfig = true;
+                    break;
             }
 
             return true;
@@ -326,6 +426,11 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
         if (affectedDevice is not null)
         {
             signals.NotifyDevice(affectedDevice); // Player Shell узнаёт о старте/продлении/завершении сразу
+        }
+
+        if (refreshConfig)
+        {
+            signals.NotifyConfigChanged();
         }
 
         if (command.DeviceCommand is { } e)
@@ -904,7 +1009,8 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
     private static EdgeDevice MapDevice(SqliteDataReader r) => new(
         r.S("device_id"), r.S("display_name"), r.S("zone_id"), r.L("simulated") == 1, r.S("certificate_pem"),
         r.L("online") == 1, Enum.Parse<DeviceStatus>(r.S("agent_status")), r.TN("last_heartbeat_utc"),
-        r.Str("inventory_json") is { } inv ? JsonSerializer.Deserialize<DeviceInventory>(inv, ContractJson.Options) : null);
+        r.Str("inventory_json") is { } inv ? JsonSerializer.Deserialize<DeviceInventory>(inv, ContractJson.Options) : null,
+        r.Str("hardware_id"), r.Str("local_certificate_pem"));
 
     private static EdgeSession MapSession(SqliteDataReader r) => new(
         r.S("session_id"), r.S("device_id"), Enum.Parse<SessionState>(r.S("state")), r.S("origin"),
