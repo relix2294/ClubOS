@@ -192,7 +192,10 @@ export type Permission =
   | "audit.view"
   | "enrollment.manage"
   | "staff.manage"
-  | "locations.manage";
+  | "locations.manage"
+  | "cash.operate"
+  | "cash.refund"
+  | "reports.view";
 
 export interface UserView {
   userId: string;
@@ -346,7 +349,7 @@ export function calculateMinorUnits(pricePerHourMinorUnits: number, elapsedMs: n
 
 // ---- Live-обновления Admin Web (SSE /api/v1/live, DEVIATIONS D-008) ----
 
-export type LiveTopic = "devices" | "commands" | "sessions" | "audit" | "edges" | "staff";
+export type LiveTopic = "devices" | "commands" | "sessions" | "audit" | "edges" | "staff" | "cash";
 
 /** Подсказка «изменилось»: данные клиент перечитывает через REST. */
 export interface LiveEvent {
@@ -385,4 +388,104 @@ export interface MfaEnableResponse {
 
 export interface RecoveryCodesResponse {
   recoveryCodes: string[];
+}
+
+// ---- Касса и отчёты (ТЗ §12) ----
+
+export type PaymentMethod = "Cash" | "Card";
+
+export type CashOperationKind = "SessionPayment" | "Refund" | "CashIn" | "CashOut";
+
+export interface ShiftTotals {
+  cashPaymentsMinorUnits: number;
+  cardPaymentsMinorUnits: number;
+  cashRefundsMinorUnits: number;
+  cardRefundsMinorUnits: number;
+  cashInMinorUnits: number;
+  cashOutMinorUnits: number;
+  /** Наличные по учёту: остаток на начало + все движения наличных. */
+  expectedCashMinorUnits: number;
+  /** Оплаты минус возвраты (наличные и карта). */
+  revenueMinorUnits: number;
+  paymentCount: number;
+}
+
+export interface CashShiftView {
+  shiftId: string;
+  locationId: string;
+  currency: string;
+  openedBy: string;
+  openedByName: string;
+  openedAtUtc: string;
+  openingCashMinorUnits: number;
+  closedBy: string | null;
+  closedByName: string | null;
+  closedAtUtc: string | null;
+  countedCashMinorUnits: number | null;
+  /** Пересчитано минус по учёту: минус — недостача, плюс — излишек. */
+  discrepancyMinorUnits: number | null;
+  closeNote: string | null;
+  totals: ShiftTotals;
+}
+
+export interface CashOperationView {
+  operationId: string;
+  shiftId: string;
+  kind: CashOperationKind;
+  method: PaymentMethod;
+  /** Со знаком: плюс — деньги поступили, минус — ушли. */
+  amountMinorUnits: number;
+  currency: string;
+  sessionId: string | null;
+  deviceId: string | null;
+  deviceName: string | null;
+  reason: string | null;
+  createdBy: string;
+  createdByName: string;
+  createdAtUtc: string;
+}
+
+/** Сессия с незакрытым расчётом: due > 0 — долг клиента, due < 0 — переплата к возврату. */
+export interface PayableSessionView {
+  sessionId: string;
+  deviceId: string;
+  deviceName: string;
+  state: SessionState;
+  startedAtUtc: string | null;
+  endedAtUtc: string | null;
+  plannedEndAtUtc: string | null;
+  currency: string;
+  chargeMinorUnits: number;
+  paidMinorUnits: number;
+  dueMinorUnits: number;
+}
+
+export interface CashDeskView {
+  locationId: string;
+  currency: string;
+  shift: CashShiftView | null;
+  payable: PayableSessionView[];
+  operations: CashOperationView[];
+}
+
+export interface RevenueDayView {
+  /** ГГГГ-ММ-ДД в часовом поясе локации; у итоговой строки — "total". */
+  date: string;
+  sessionsEnded: number;
+  chargedMinorUnits: number;
+  cashMinorUnits: number;
+  cardMinorUnits: number;
+  refundsMinorUnits: number;
+  netMinorUnits: number;
+}
+
+export interface RevenueReportView {
+  locationId: string;
+  currency: string;
+  timezone: string;
+  from: string;
+  to: string;
+  days: RevenueDayView[];
+  totals: RevenueDayView;
+  unpaidMinorUnits: number;
 }

@@ -21,6 +21,8 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
     public DbSet<EdgeOutboxItem> EdgeOutbox => Set<EdgeOutboxItem>();
     public DbSet<InboxReceipt> InboxReceipts => Set<InboxReceipt>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
+    public DbSet<CashShift> CashShifts => Set<CashShift>();
+    public DbSet<CashOperation> CashOperations => Set<CashOperation>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -161,6 +163,36 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.HasIndex(x => new { x.TenantId, x.OccurredAtUtc });
             e.HasIndex(x => x.Target);
             e.Property(x => x.DetailsJson).HasColumnType("jsonb");
+        });
+
+        b.Entity<CashShift>(e =>
+        {
+            e.ToTable("cash_shifts");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.TenantId, x.LocationId, x.OpenedAtUtc });
+            // Одна открытая смена на локацию — гарантирует БД, а не только проверка в коде.
+            e.HasIndex(x => x.LocationId).IsUnique().HasFilter("\"ClosedAtUtc\" IS NULL")
+                .HasDatabaseName("IX_cash_shifts_open_per_location");
+            e.Property(x => x.Currency).HasMaxLength(3);
+            e.Property(x => x.CloseNote).HasMaxLength(500);
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<CashOperation>(e =>
+        {
+            e.ToTable("cash_operations");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ShiftId, x.CreatedAtUtc });
+            e.HasIndex(x => x.SessionId);
+            e.HasIndex(x => new { x.TenantId, x.LocationId, x.CreatedAtUtc });
+            e.HasIndex(x => new { x.TenantId, x.IdempotencyKey }).IsUnique().HasFilter("\"IdempotencyKey\" IS NOT NULL");
+            e.Property(x => x.Kind).HasMaxLength(32);
+            e.Property(x => x.Method).HasMaxLength(16);
+            e.Property(x => x.Currency).HasMaxLength(3);
+            e.Property(x => x.Reason).HasMaxLength(200);
+            e.Property(x => x.IdempotencyKey).HasMaxLength(64);
+            e.HasOne<CashShift>().WithMany().HasForeignKey(x => x.ShiftId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Session>().WithMany().HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

@@ -74,6 +74,11 @@ public class StaffSecurityTests
     [InlineData(Roles.Operator, Permissions.EnrollmentManage, false)]
     [InlineData(Roles.Operator, Permissions.DevicesCommand, true)]
     [InlineData(Roles.Operator, Permissions.SessionsManage, true)]
+    [InlineData(Roles.Operator, Permissions.CashOperate, true)]
+    [InlineData(Roles.Operator, Permissions.CashRefund, false)]
+    [InlineData(Roles.Operator, Permissions.ReportsView, false)]
+    [InlineData(Roles.Admin, Permissions.CashRefund, true)]
+    [InlineData(Roles.Admin, Permissions.ReportsView, true)]
     [InlineData("Hacker", Permissions.DevicesView, false)]
     public void Role_permission_matrix(string role, string permission, bool allowed)
     {

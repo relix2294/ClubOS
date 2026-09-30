@@ -28,6 +28,10 @@ const ALLOWED = [
   /^edges\/[\w-]+\/revoke$/,
   /^pki\/ca$/,
   /^me\/mfa(\/(setup|recovery-codes))?$/,
+  /^locations\/[\w-]+\/cash(\/(shifts|movements))?$/,
+  /^cash\/shifts\/[\w-]+(\/close)?$/,
+  /^sessions\/[\w-]+\/(payments|refunds)$/,
+  /^reports\/revenue$/,
 ];
 // Смена своего пароля идёт через /api/auth/password (BFF обновляет cookie).
 

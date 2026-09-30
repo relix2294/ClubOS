@@ -321,3 +321,82 @@ public sealed class AuditEvent
     public string? CorrelationId { get; set; }
     public string? DetailsJson { get; set; }         // безопасные детали, без секретов
 }
+
+/// <summary>Способ оплаты.</summary>
+public static class PaymentMethods
+{
+    public const string Cash = "Cash";
+    public const string Card = "Card";
+
+    public static bool IsValid(string? method) => method is Cash or Card;
+}
+
+/// <summary>Виды кассовых операций.</summary>
+public static class CashOperationKinds
+{
+    /// <summary>Оплата сессии клиентом (сумма положительная).</summary>
+    public const string SessionPayment = "SessionPayment";
+
+    /// <summary>Возврат клиенту по сессии (сумма отрицательная) — отдельная связанная операция (ТЗ §12.2.1).</summary>
+    public const string Refund = "Refund";
+
+    /// <summary>Внесение наличных в кассу (размен).</summary>
+    public const string CashIn = "CashIn";
+
+    /// <summary>Изъятие наличных из кассы (инкассация, расходы).</summary>
+    public const string CashOut = "CashOut";
+}
+
+/// <summary>
+/// Кассовая смена локации. Одновременно открыта не больше одной смены на локацию (частичный уникальный индекс).
+/// При закрытии фиксируются ожидаемая сумма наличных (остаток на начало + движения наличных) и пересчитанная.
+/// Закрытая смена не меняется.
+/// </summary>
+public sealed class CashShift
+{
+    public required string Id { get; set; }
+    public required string TenantId { get; set; }
+    public required string LocationId { get; set; }
+    public required string Currency { get; set; }
+
+    public required string OpenedBy { get; set; }
+    public DateTimeOffset OpenedAtUtc { get; set; }
+    public long OpeningCashMinorUnits { get; set; }
+
+    public string? ClosedBy { get; set; }
+    public DateTimeOffset? ClosedAtUtc { get; set; }
+
+    /// <summary>Наличные по учёту на момент закрытия.</summary>
+    public long? ExpectedCashMinorUnits { get; set; }
+
+    /// <summary>Наличные по факту пересчёта.</summary>
+    public long? CountedCashMinorUnits { get; set; }
+
+    public string? CloseNote { get; set; }
+}
+
+/// <summary>
+/// Иммутабельная кассовая операция внутри смены. Сумма со знаком: плюс — деньги поступили
+/// (оплата, внесение), минус — ушли (возврат, изъятие). Исправление — только новой операцией.
+/// </summary>
+public sealed class CashOperation
+{
+    public required string Id { get; set; }
+    public required string TenantId { get; set; }
+    public required string LocationId { get; set; }
+    public required string ShiftId { get; set; }
+    public required string Kind { get; set; }
+    public required string Method { get; set; }
+    public long AmountMinorUnits { get; set; }
+    public required string Currency { get; set; }
+
+    public string? SessionId { get; set; }
+    public string? DeviceId { get; set; }
+    public string? Reason { get; set; }
+
+    public required string CreatedBy { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+
+    /// <summary>Ключ идемпотентности от клиента: повтор запроса не создаёт вторую операцию.</summary>
+    public string? IdempotencyKey { get; set; }
+}

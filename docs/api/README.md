@@ -80,6 +80,29 @@ Tenant берётся только из JWT. Чужие объекты возв�
 
 Rate limit на `/auth/*` и enrollment: `RateLimits:AuthPerMinute` (по умолчанию 20 запросов в минуту с одного IP).
 
+## Cloud API: касса и отчёты (JWT Bearer)
+
+Деньги — целые minor units (1 TJS = 100). Операции иммутабельны: ошибка исправляется новой операцией (ТЗ §12.2.1),
+UPDATE/DELETE в `cash_operations` запрещены триггером БД. Изменения идут в транзакции с блокировкой строк
+открытой смены и сессии: параллельные оплаты не превышают долг. `idempotencyKey` (8–64 символа, необязателен)
+защищает от двойного списания: повтор с тем же ключом возвращает уже созданную операцию (**200**).
+
+| Метод | Путь | Назначение |
+|-------|------|-----------|
+| GET | `/api/v1/locations/{locationId}/cash` | `cash.operate`: открытая смена с итогами, сессии к расчёту (`dueMinorUnits` > 0 — долг, < 0 — переплата), операции смены |
+| POST | `/api/v1/locations/{locationId}/cash/shifts` | `cash.operate`: открыть смену `{openingCashMinorUnits}`. **409** `shift_already_open` — одна открытая смена на локацию (уникальный индекс) |
+| POST | `/api/v1/cash/shifts/{shiftId}/close` | `cash.operate`: закрыть `{countedCashMinorUnits, note?}` → фиксируются ожидаемые наличные и расхождение (`discrepancyMinorUnits`: минус — недостача) |
+| POST | `/api/v1/sessions/{sessionId}/payments` | `cash.operate`: `{amountMinorUnits, method: Cash/Card, idempotencyKey?}`, частичная оплата допустима. Начисление: завершённая — итог Edge; идущая с лимитом — до планового окончания (предоплата, продление добавляет долг); без лимита — только после завершения (**409** `session_not_payable`). **409** `shift_not_open`, `session_paid`; **400** `amount_exceeds_due` |
+| POST | `/api/v1/sessions/{sessionId}/refunds` | `cash.operate`: `{amountMinorUnits, method, reason, idempotencyKey?}`. Переплату возвращает любой кассир; больше переплаты — только с `cash.refund` (иначе **403**). Не больше оплаченного; наличными — не больше, чем в кассе |
+| POST | `/api/v1/locations/{locationId}/cash/movements` | `cash.operate`: `{kind: CashIn/CashOut, amountMinorUnits, reason}` — внесение (размен) или изъятие (инкассация); изъятие не больше наличных в кассе |
+| GET | `/api/v1/locations/{locationId}/cash/shifts?limit=` | `reports.view`: история смен с итогами и расхождениями |
+| GET | `/api/v1/cash/shifts/{shiftId}` | `reports.view`: смена и все её операции |
+| GET | `/api/v1/reports/revenue?locationId=&from=ГГГГ-ММ-ДД&to=` | `reports.view`: по дням в часовом поясе локации (≤ 92 дней): сессий завершено, начислено, наличные, карта, возвраты, итог; `unpaidMinorUnits` — долг по сессиям периода |
+
+Права: `cash.operate` — Owner, Admin, Operator; `cash.refund` и `reports.view` — Owner, Admin. Аудит: `cash.shift_opened`,
+`cash.shift_closed`, `cash.payment` и `cash.refund` (target `device:<id>`), `cash.cash_in`, `cash.cash_out`.
+Live-поток: тема `cash` (только с `cash.operate`).
+
 ## Cloud API: Edge (`Authorization: ClubOS-Sig <JWS>`)
 
 Токен `ClubOS-Sig` (ES256, 60 с, одноразовый `jti`) подписан ключом Edge и привязан к запросу:

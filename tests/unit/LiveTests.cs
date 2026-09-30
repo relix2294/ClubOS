@@ -148,6 +148,7 @@ public class LiveBrokerTests
     [InlineData(Roles.Operator, LiveTopics.Staff, false)]
     [InlineData(Roles.Operator, LiveTopics.Audit, true)]
     [InlineData(Roles.Operator, LiveTopics.Devices, true)]
+    [InlineData(Roles.Operator, LiveTopics.Cash, true)]
     public void Hints_respect_permissions(string role, string topic, bool allowed) =>
         Assert.Equal(allowed, LiveEndpoints.Allowed(role, Everything, new LiveEvent(topic, "org_a", "loc_1")));
 

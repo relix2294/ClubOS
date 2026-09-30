@@ -112,6 +112,12 @@ public sealed class LiveChangeInterceptor(LiveBroker broker) : ISaveChangesInter
             case Edge e when changed || modified.Any(p => !NoisyEdgeFields.Contains(p)):
                 yield return new LiveEvent(LiveTopics.Edges, e.TenantId, e.LocationId, null, e.Id);
                 break;
+            case CashShift sh:
+                yield return new LiveEvent(LiveTopics.Cash, sh.TenantId, sh.LocationId, null, sh.Id);
+                break;
+            case CashOperation op:
+                yield return new LiveEvent(LiveTopics.Cash, op.TenantId, op.LocationId, op.DeviceId, op.ShiftId);
+                break;
             case User u:
                 yield return new LiveEvent(LiveTopics.Staff, u.OrganizationId, null, null, u.Id);
                 break;

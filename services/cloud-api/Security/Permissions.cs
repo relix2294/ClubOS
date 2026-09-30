@@ -17,15 +17,30 @@ public static class Permissions
     /// <summary>Локации, зоны и тарифы (деньги) — только владелец.</summary>
     public const string LocationsManage = "locations.manage";
 
+    /// <summary>Касса: открыть/закрыть смену, принять оплату, вернуть переплату, внесение и изъятие.</summary>
+    public const string CashOperate = "cash.operate";
+
+    /// <summary>Возврат оплаченных денег сверх переплаты (решение администратора).</summary>
+    public const string CashRefund = "cash.refund";
+
+    /// <summary>Отчёты по выручке и история смен всех кассиров.</summary>
+    public const string ReportsView = "reports.view";
+
     public static readonly IReadOnlyList<string> All =
-        [DevicesView, DevicesCommand, SessionsManage, AuditView, EnrollmentManage, StaffManage, LocationsManage];
+    [
+        DevicesView, DevicesCommand, SessionsManage, AuditView, EnrollmentManage, StaffManage, LocationsManage,
+        CashOperate, CashRefund, ReportsView
+    ];
 
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> ByRole =
         new Dictionary<string, IReadOnlySet<string>>
         {
             [Roles.Owner] = All.ToHashSet(),
-            [Roles.Admin] = new HashSet<string> { DevicesView, DevicesCommand, SessionsManage, AuditView, EnrollmentManage },
-            [Roles.Operator] = new HashSet<string> { DevicesView, DevicesCommand, SessionsManage, AuditView }
+            [Roles.Admin] = new HashSet<string>
+            {
+                DevicesView, DevicesCommand, SessionsManage, AuditView, EnrollmentManage, CashOperate, CashRefund, ReportsView
+            },
+            [Roles.Operator] = new HashSet<string> { DevicesView, DevicesCommand, SessionsManage, AuditView, CashOperate }
         };
 
     public static IReadOnlySet<string> For(string role) =>

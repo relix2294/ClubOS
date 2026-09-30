@@ -105,6 +105,7 @@ public static class LiveEndpoints
         {
             LiveTopics.Audit => Permissions.Has(role, Permissions.AuditView),
             LiveTopics.Staff => Permissions.Has(role, Permissions.StaffManage),
+            LiveTopics.Cash => Permissions.Has(role, Permissions.CashOperate),
             _ => true
         };
 

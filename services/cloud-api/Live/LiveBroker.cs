@@ -19,6 +19,9 @@ public static class LiveTopics
 
     public const string Staff = "staff";
 
+    /// <summary>Касса: смена, оплаты, возвраты, внесения и изъятия.</summary>
+    public const string Cash = "cash";
+
     /// <summary>Подписчик отстал (переполнение буфера) — клиенту нужно перечитать всё.</summary>
     public const string Resync = "resync";
 }
