@@ -30,6 +30,11 @@
 		reverse_proxy cloud-api:8080
 	}
 
+	# Пакеты для Windows: ClubOS-Edge-win-x64.zip, ClubOS-Agent-win-x64.zip, SHA256SUMS.txt, VERSION.txt.
+	handle_path /downloads/* {
+		reverse_proxy downloads:8080
+	}
+
 	# Admin Web, включая его BFF (/api/auth/*, /api/cloud/*).
 	handle {
 		reverse_proxy admin-web:3000

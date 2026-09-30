@@ -146,6 +146,25 @@ jobs:
           name: clubos-windows-agent-selfcontained
           path: out/agent-sc
 
+  downloads:
+    name: Windows packages for /downloads (built on Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build downloads image (self-contained Edge + Agent, zip)
+        run: docker build -f infrastructure/docker/downloads.Dockerfile --build-arg CLUBOS_VERSION=${GITHUB_SHA::7} -t clubos-downloads:ci .
+      - name: Serve and check packages
+        run: |
+          docker run -d --name dl -p 8088:8080 clubos-downloads:ci
+          sleep 2
+          curl -fsS http://localhost:8088/VERSION.txt
+          for z in ClubOS-Agent-win-x64.zip ClubOS-Edge-win-x64.zip; do
+            curl -fsS -o "$z" "http://localhost:8088/$z"
+            unzip -l "$z" | grep -E 'INSTALL\.cmd|setup-.*\.ps1|\.exe$'
+          done
+          unzip -l ClubOS-Agent-win-x64.zip | grep -q 'ClubOS.Agent.SessionHost.exe'
+          unzip -l ClubOS-Edge-win-x64.zip | grep -q 'ClubOS.EdgeController.exe'
+
   e2e:
     name: E2E smoke (docker compose + simulator + Playwright)
     runs-on: ubuntu-latest

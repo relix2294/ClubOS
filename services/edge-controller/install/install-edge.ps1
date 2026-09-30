@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Установка ClubOS Edge Controller как Windows-службы на сервере клуба. M0.
 

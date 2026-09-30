@@ -12,7 +12,7 @@ Device Simulator'ом. CI гарантирует только компиляци
 | Работающий стек ClubOS | Cloud на VPS ([vps-deploy.md](vps-deploy.md)) + Edge на сервере клуба ([edge-windows-install.md](edge-windows-install.md)); для разработки — `docker compose up -d` (README) |
 | Сетевой доступ ПК → Edge, TCP **7443** (HTTPS) | Edge слушает `0.0.0.0:7443` (и переходный HTTP 7070); `install-edge.ps1` открывает порты в firewall сервера |
 | Отпечаток CA | Admin Web → **Подключение** → «Отпечаток CA для HTTPS» (кнопка копирует готовую команду) |
-| Пакет агента | артефакт CI `clubos-windows-agent-selfcontained` (рекомендуется для теста: ничего не нужно ставить), `clubos-windows-agent` (требует Desktop Runtime) **или** сборка ниже |
+| Пакет агента | Admin Web → «Подключение» → «Скачать агент» (`https://<домен>/downloads/ClubOS-Agent-win-x64.zip`, self-contained, собран на VPS из той же версии). Проще всего: распаковать и запустить **INSTALL.cmd** — мастер спросит адрес Edge, отпечаток, токен, режим экрана и PIN. Также: артефакт CI `clubos-windows-agent-selfcontained` или сборка ниже |
 
 ### Сборка пакета (на любой машине с .NET 10 SDK)
 

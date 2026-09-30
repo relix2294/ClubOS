@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import type { EnrollmentTokenResponse } from "@clubos/contracts";
 import { useShell } from "@/components/AppShell";
 import { Button, Card, Field, inputClass } from "@/components/ui";
@@ -11,81 +11,143 @@ import { t } from "@/lib/i18n";
 export default function EnrollmentPage() {
   const { location, can } = useShell();
   const isOwner = can("enrollment.manage");
+  const fingerprint = useCaFingerprint(isOwner);
 
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-bold text-slate-900">{t.enrollment.title}</h1>
       {!isOwner && <p className="text-sm text-slate-600">Создавать токены может владелец или администратор.</p>}
+      <DownloadsCard />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <EdgeTokenForm locationId={location.locationId} timezone={location.timezone} disabled={!isOwner} />
-        <DeviceTokenForm disabled={!isOwner} />
+        <DeviceTokenForm disabled={!isOwner} fingerprint={fingerprint} />
       </div>
-      {isOwner && <CaFingerprint />}
+      {isOwner && fingerprint && <CaFingerprint fingerprint={fingerprint} />}
     </div>
   );
 }
 
 /** Отпечаток dev CA для установки агента по HTTPS (D-007): агент доверяет Edge только от этого CA. */
-function CaFingerprint() {
+function useCaFingerprint(enabled: boolean): string | undefined {
   const [fingerprint, setFingerprint] = useState<string>();
-  const [copied, setCopied] = useState(false);
-
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     apiGet<{ fingerprintSha256: string }>("pki/ca", controller.signal)
       .then((x) => setFingerprint(x.fingerprintSha256))
       .catch(() => undefined);
     return () => controller.abort();
+  }, [enabled]);
+  return fingerprint;
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Button
+      variant="secondary"
+      className="shrink-0 px-2 py-0.5 text-xs"
+      onClick={async () => {
+        await navigator.clipboard.writeText(text);
+        setCopied(true);
+      }}
+    >
+      {copied ? t.common.copied : t.enrollment.copy}
+    </Button>
+  );
+}
+
+/** Строка «подпись: значение [Скопировать]» — то, что мастер установки спросит у техника. */
+function Answer({ label, value, hint, testId }: { label: string; value?: string; hint?: ReactNode; testId?: string }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs font-semibold text-slate-600">{label}</span>
+      {value ? (
+        <div className="flex items-start gap-2">
+          <code data-testid={testId} className="block min-w-0 flex-1 rounded bg-white p-2 font-mono text-xs break-all">
+            {value}
+          </code>
+          <CopyButton text={value} />
+        </div>
+      ) : (
+        <span className="text-xs text-slate-600">{hint}</span>
+      )}
+    </div>
+  );
+}
+
+function DownloadsCard() {
+  const [version, setVersion] = useState<string>();
+  useEffect(() => {
+    fetch("/downloads/VERSION.txt", { cache: "no-store" })
+      .then((r) => (r.ok ? r.text() : undefined))
+      .then((v) => setVersion(v?.trim() || undefined))
+      .catch(() => undefined);
   }, []);
 
-  if (!fingerprint) return null;
-  const command = `.\\install-agent.ps1 -EdgeUrl https://<IP сервера Edge>:7443 -EdgeCaFingerprint ${fingerprint} -EnrollmentToken <токен>`;
-
   return (
-    <Card title={t.enrollment.caTitle}>
-      <div className="flex flex-col gap-3 text-sm" data-testid="ca-fingerprint">
-        <p className="text-slate-600">{t.enrollment.caHint}</p>
-        <code className="block rounded bg-slate-50 p-2 font-mono text-xs break-all">{fingerprint}</code>
-        <p className="text-slate-600">{t.enrollment.caCommand}</p>
-        <code className="block rounded bg-slate-50 p-2 font-mono text-xs break-all">{command}</code>
-        <div>
-          <Button
-            variant="secondary"
-            className="py-1"
-            onClick={async () => {
-              await navigator.clipboard.writeText(command);
-              setCopied(true);
-            }}
+    <Card title={t.enrollment.downloadsTitle}>
+      <div className="flex flex-col gap-4 text-sm" data-testid="downloads">
+        <p className="text-slate-600">{t.enrollment.downloadsIntro}</p>
+        <div className="flex flex-wrap gap-3">
+          <a
+            href="/downloads/ClubOS-Edge-win-x64.zip"
+            download
+            className="inline-flex items-center rounded-lg bg-brand-600 px-4 py-2 font-medium text-white hover:bg-brand-700"
           >
-            {copied ? t.mfa.copied : t.enrollment.copy}
-          </Button>
+            {t.enrollment.downloadEdge}
+          </a>
+          <a
+            href="/downloads/ClubOS-Agent-win-x64.zip"
+            download
+            className="inline-flex items-center rounded-lg bg-brand-600 px-4 py-2 font-medium text-white hover:bg-brand-700"
+          >
+            {t.enrollment.downloadAgent}
+          </a>
         </div>
+        <div>
+          <div className="font-semibold text-slate-800">{t.enrollment.stepsTitle}</div>
+          <ol className="mt-1 list-decimal space-y-1 pl-5 text-slate-700">
+            <li>{t.enrollment.step1}</li>
+            <li>{t.enrollment.step2}</li>
+            <li>{t.enrollment.step3}</li>
+          </ol>
+        </div>
+        {version && (
+          <p className="text-xs text-slate-500">
+            {t.enrollment.downloadVersion}: <span className="font-mono">{version}</span> ·{" "}
+            <a className="underline" href="/downloads/SHA256SUMS.txt">
+              SHA-256
+            </a>
+          </p>
+        )}
       </div>
     </Card>
   );
 }
 
-function TokenResult({ token, timezone }: { token: EnrollmentTokenResponse; timezone: string }) {
-  const [copied, setCopied] = useState(false);
+function CaFingerprint({ fingerprint }: { fingerprint: string }) {
+  const command = `.\\install-agent.ps1 -EdgeUrl https://<IP сервера Edge>:7443 -EdgeCaFingerprint ${fingerprint} -EnrollmentToken <токен>`;
   return (
-    <div className="mt-4 rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm" data-testid="enrollment-token">
-      <p className="mb-2 text-emerald-900">{t.enrollment.tokenOnce}</p>
-      <code className="block rounded bg-white p-2 font-mono text-xs break-all">{token.enrollmentToken}</code>
-      <div className="mt-2 flex items-center gap-3">
-        <Button
-          variant="secondary"
-          className="py-1"
-          onClick={async () => {
-            await navigator.clipboard.writeText(token.enrollmentToken);
-            setCopied(true);
-          }}
-        >
-          {copied ? t.common.copied : t.enrollment.copy}
-        </Button>
-        <span className="text-xs text-slate-600">
-          {t.enrollment.expires}: {formatDateTime(token.expiresAtUtc, timezone)}
-        </span>
+    <Card title={t.enrollment.caTitle}>
+      <div className="flex flex-col gap-3 text-sm" data-testid="ca-fingerprint">
+        <p className="text-slate-600">{t.enrollment.caHint}</p>
+        <Answer label={t.enrollment.fingerprint} value={fingerprint} />
+        <Answer label={t.enrollment.caCommand} value={command} />
       </div>
+    </Card>
+  );
+}
+
+function TokenResult({ token, timezone, children }: { token: EnrollmentTokenResponse; timezone: string; children?: ReactNode }) {
+  return (
+    <div className="mt-4 flex flex-col gap-3 rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm" data-testid="enrollment-token">
+      <p className="text-emerald-900">
+        {t.enrollment.tokenOnce} {t.enrollment.expires}: {formatDateTime(token.expiresAtUtc, timezone)}
+      </p>
+      <p className="font-semibold text-slate-800">{t.enrollment.wizardAnswers}</p>
+      {children}
+      <Answer label={t.enrollment.token} value={token.enrollmentToken} testId="token-value" />
     </div>
   );
 }
@@ -94,6 +156,7 @@ function EdgeTokenForm({ locationId, timezone, disabled }: { locationId: string;
   const [name, setName] = useState("Edge-1");
   const [token, setToken] = useState<EnrollmentTokenResponse>();
   const [error, setError] = useState<string>();
+  const cloudUrl = typeof window === "undefined" ? "" : window.location.origin;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -114,17 +177,22 @@ function EdgeTokenForm({ locationId, timezone, disabled }: { locationId: string;
         <Button type="submit" disabled={disabled}>
           {t.enrollment.create}
         </Button>
-        <p className="text-xs text-slate-500">
-          Передайте токен Edge через переменную окружения <code>CLUBOS_Edge__EnrollmentToken</code> при первом запуске.
-        </p>
       </form>
       {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
-      {token && <TokenResult token={token} timezone={timezone} />}
+      {token && (
+        <TokenResult token={token} timezone={timezone}>
+          <Answer label={t.enrollment.cloudAddress} value={cloudUrl} />
+          <Answer
+            label={t.enrollment.orCommand}
+            value={`.\\install-edge.ps1 -CloudUrl ${cloudUrl} -EnrollmentToken ${token.enrollmentToken}`}
+          />
+        </TokenResult>
+      )}
     </Card>
   );
 }
 
-function DeviceTokenForm({ disabled }: { disabled: boolean }) {
+function DeviceTokenForm({ disabled, fingerprint }: { disabled: boolean; fingerprint?: string }) {
   const { location } = useShell();
   const [name, setName] = useState("PC-01");
   const [zoneId, setZoneId] = useState(location.zones[0]?.zoneId ?? "");
@@ -166,12 +234,20 @@ function DeviceTokenForm({ disabled }: { disabled: boolean }) {
         <Button type="submit" disabled={disabled}>
           {t.enrollment.create}
         </Button>
-        <p className="text-xs text-slate-500">
-          Укажите токен в <code>agent.json</code> (<code>Agent:EnrollmentToken</code>) — см. runbook установки агента.
-        </p>
       </form>
       {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
-      {token && <TokenResult token={token} timezone={location.timezone} />}
+      {token && (
+        <TokenResult token={token} timezone={location.timezone}>
+          <Answer label={t.enrollment.edgeAddress} hint={t.enrollment.edgeAddressHint} />
+          <Answer label={t.enrollment.fingerprint} value={fingerprint} />
+          {fingerprint && (
+            <Answer
+              label={t.enrollment.orCommand}
+              value={`.\\install-agent.ps1 -EdgeUrl https://<IP сервера клуба>:7443 -EdgeCaFingerprint ${fingerprint} -EnrollmentToken ${token.enrollmentToken} -ShellMode Enforced`}
+            />
+          )}
+        </TokenResult>
+      )}
     </Card>
   );
 }

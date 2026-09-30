@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Установка ClubOS Windows Agent (служба + AgentSessionHost + Player Shell) на ПК клуба.
 

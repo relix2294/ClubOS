@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Удаление ClubOS Edge Controller. С -RemoveData удаляет также edge.db, identity и ключ Edge:
   несинхронизированные события будут потеряны, для повторной установки нужен новый enrollment-токен.

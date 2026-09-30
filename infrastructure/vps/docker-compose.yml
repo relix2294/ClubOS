@@ -75,12 +75,22 @@ services:
       CLUBOS_CLOUD_API_URL: http://cloud-api:8080
       CLUBOS_COOKIE_SECURE: "true"
 
+  # Пакеты для Windows (Edge и Agent, self-contained) — https://<домен>/downloads/. Собираются из этой же версии кода.
+  downloads:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/downloads.Dockerfile
+      args:
+        CLUBOS_VERSION: ${CLUBOS_VERSION:-dev}
+    restart: unless-stopped
+
   caddy:
     image: caddy:2
     restart: unless-stopped
     depends_on:
       - admin-web
       - cloud-api
+      - downloads
     environment:
       CLUBOS_DOMAIN: ${CLUBOS_DOMAIN:?задайте CLUBOS_DOMAIN в .env}
       CLUBOS_ACME_EMAIL: ${CLUBOS_ACME_EMAIL:?задайте CLUBOS_ACME_EMAIL в .env}

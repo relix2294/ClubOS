@@ -82,8 +82,19 @@ services:
         condition: service_healthy
     environment:
       CLUBOS_CLOUD_API_URL: http://cloud-api:8080
+      # Ссылки «Скачать» в Admin Web (/downloads/...) — на VPS их отдаёт Caddy, в dev — этот адрес.
+      CLUBOS_DOWNLOADS_URL: http://downloads:8080
     ports:
       - "3000:3000"
+
+  # Пакеты для Windows (сборка 3–5 минут): docker compose --profile downloads up -d downloads
+  downloads:
+    profiles: ["downloads"]
+    build:
+      context: .
+      dockerfile: infrastructure/docker/downloads.Dockerfile
+    ports:
+      - "8088:8080"
 
   device-simulator:
     profiles: ["simulator"]

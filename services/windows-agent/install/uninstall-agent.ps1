@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Удаление ClubOS Windows Agent. С -RemoveData удаляет также identity и ключ устройства
   (после этого для повторной установки нужен новый enrollment-токен).

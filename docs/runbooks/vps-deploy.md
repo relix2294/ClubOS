@@ -48,6 +48,9 @@ docker compose logs -f caddy        # «certificate obtained successfully» дл
 
 Что опубликовано наружу (Caddyfile):
 - `/` — Admin Web;
+- `/downloads/` — пакеты для Windows (Edge и агент, self-contained zip с мастером INSTALL.cmd), собираются сервисом
+  `downloads` из той же версии кода при `docker compose up --build`. Версию пакетов задаёт `CLUBOS_VERSION`
+  (например `CLUBOS_VERSION=$(git rev-parse --short HEAD) docker compose up -d --build`);
 - `/api/v1/*` — Cloud API: Edge по подписанным запросам, staff API по JWT;
 - Swagger, OpenAPI и health снаружи возвращают 404.
 
