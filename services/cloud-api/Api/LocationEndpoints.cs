@@ -54,7 +54,8 @@ public static partial class LocationEndpoints
             return Problems.Validation("invalid_name", "Название локации 1–80 символов.");
         }
 
-        if (request.Timezone is null || !TimezonePattern().IsMatch(request.Timezone))
+        if (request.Timezone is null || !TimezonePattern().IsMatch(request.Timezone) ||
+            CashEndpoints.FindZone(request.Timezone) is null)
         {
             return Problems.Validation("invalid_timezone", "Часовой пояс в формате IANA, например Asia/Dushanbe.");
         }

@@ -444,7 +444,11 @@ public static partial class CashEndpoints
             return Problems.Validation("invalid_period", $"Период: from и to в формате ГГГГ-ММ-ДД, не больше {MaxReportDays} дней.");
         }
 
-        var zone = TimeZoneInfo.FindSystemTimeZoneById(location.Timezone);
+        if (FindZone(location.Timezone) is not { } zone)
+        {
+            return Problems.Validation("invalid_timezone", $"Часовой пояс локации «{location.Timezone}» неизвестен серверу.");
+        }
+
         var fromUtc = LocalMidnightUtc(fromDate, zone);
         var toUtc = LocalMidnightUtc(toDate.AddDays(1), zone);
 
@@ -491,6 +495,25 @@ public static partial class CashEndpoints
         var card = payments.Where(o => o.Method == PaymentMethods.Card).Sum(o => o.AmountMinorUnits);
         var refunds = -operations.Where(o => o.Kind == CashOperationKinds.Refund).Sum(o => o.AmountMinorUnits);
         return new RevenueDayView(date, sessionsEnded, charged, cash, card, refunds, cash + card - refunds);
+    }
+
+    /// <summary>
+    /// Часовой пояс по IANA-имени (как хранится у локации). В Linux-контейнере .NET читает tzdata напрямую;
+    /// на Windows IANA-имя переводится в Windows-идентификатор, если это позволяет среда (ICU). null — пояс неизвестен.
+    /// </summary>
+    public static TimeZoneInfo? FindZone(string id)
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(id);
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            return TimeZoneInfo.TryConvertIanaIdToWindowsId(id, out var windowsId) &&
+                   TimeZoneInfo.TryFindSystemTimeZoneById(windowsId, out var zone)
+                ? zone
+                : null;
+        }
     }
 
     /// <summary>Начало местных суток в UTC (с учётом перехода на летнее время, если он есть в поясе).</summary>

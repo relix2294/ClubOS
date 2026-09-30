@@ -127,11 +127,21 @@ public class CashMathTests
         Assert.Equal(1_200, day.ChargedMinorUnits);
     }
 
+    /// <summary>
+    /// Пояс через тот же поиск, что в Cloud. Windows CI без ICU (InvariantGlobalization) IANA-имён не знает —
+    /// там берём Windows-идентификатор того же пояса; Cloud в проде работает в Linux-контейнере.
+    /// </summary>
+    private static TimeZoneInfo Zone(string iana, string windows) =>
+        CashEndpoints.FindZone(iana) ?? TimeZoneInfo.FindSystemTimeZoneById(windows);
+
+    [Fact]
+    public void Unknown_zone_is_not_found() => Assert.Null(CashEndpoints.FindZone("Mars/Olympus_Mons"));
+
     [Fact]
     public void Local_day_starts_at_local_midnight()
     {
         // Душанбе UTC+5 без перехода на летнее время: 30.09 начинается в 19:00 UTC 29.09.
-        var dushanbe = TimeZoneInfo.FindSystemTimeZoneById("Asia/Dushanbe");
+        var dushanbe = Zone("Asia/Dushanbe", "West Asia Standard Time");
         Assert.Equal(new DateTimeOffset(2026, 9, 29, 19, 0, 0, TimeSpan.Zero),
             CashEndpoints.LocalMidnightUtc(new DateOnly(2026, 9, 30), dushanbe));
     }
@@ -140,7 +150,7 @@ public class CashMathTests
     public void Local_midnight_survives_dst_gap()
     {
         // В Сантьяго переход на летнее время происходит в полночь: 00:00 не существует, сутки начинаются в 01:00.
-        var santiago = TimeZoneInfo.FindSystemTimeZoneById("America/Santiago");
+        var santiago = Zone("America/Santiago", "Pacific SA Standard Time");
         var start = CashEndpoints.LocalMidnightUtc(new DateOnly(2026, 9, 6), santiago);
         Assert.False(santiago.IsInvalidTime(TimeZoneInfo.ConvertTime(start, santiago).DateTime));
         Assert.True(start < CashEndpoints.LocalMidnightUtc(new DateOnly(2026, 9, 7), santiago));
