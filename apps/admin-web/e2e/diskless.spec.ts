@@ -18,9 +18,12 @@ test("бездисковый ПК: ожидает подтверждения →
 
   const pending = page.getByTestId("diskless-pending");
   const row = pending.getByTestId("diskless-row").first();
+  const approved = page.getByTestId("device-tile").filter({ hasText: "Бездисковый" }).first();
   // ПК мог быть подтверждён прошлым прогоном — тогда в списке остаётся второй или список пуст.
-  if (!(await row.isVisible({ timeout: 20_000 }).catch(() => false))) {
-    await expect(page.getByTestId("device-tile").filter({ hasText: "Бездисковый" }).first()).toBeVisible();
+  // isVisible() не ждёт: сначала дождаться одного из состояний (на чистой БД ПК появляются через секунды —
+  // загрузка симулятора и отчёт Edge).
+  await expect(row.or(approved)).toBeVisible({ timeout: 60_000 });
+  if (!(await row.isVisible())) {
     return;
   }
 
