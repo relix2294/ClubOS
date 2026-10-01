@@ -110,6 +110,14 @@ public sealed class EdgeDatabase : IDisposable
             Exec(connection, tx, "PRAGMA user_version = 4;");
             tx.Commit();
         }
+
+        if (version < 5)
+        {
+            using var tx = connection.BeginTransaction();
+            Exec(connection, tx, Schema.V5);
+            Exec(connection, tx, "PRAGMA user_version = 5;");
+            tx.Commit();
+        }
     }
 
     public int SchemaVersion => Convert.ToInt32(Read(c => Scalar(c, "PRAGMA user_version;")));
@@ -252,6 +260,39 @@ public sealed class EdgeDatabase : IDisposable
         public const string V4 = """
             ALTER TABLE zones ADD COLUMN periods_json TEXT NULL;
             ALTER TABLE sessions ADD COLUMN price_snapshot_json TEXT NULL;
+            """;
+
+        /// <summary>
+        /// M2: касса Edge без интернета (D-023). offline_staff — кассиры с PIN из конфигурации Cloud;
+        /// session_cloud_paid — оплачено по сессии в Cloud (команда CashSync); offline_payments — оплаты, принятые
+        /// на Edge (иммутабельны, в Cloud уходят событием OfflinePaymentRecorded).
+        /// </summary>
+        public const string V5 = """
+            CREATE TABLE offline_staff (
+                user_id      TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                pin_hash     TEXT NOT NULL
+            );
+
+            CREATE TABLE session_cloud_paid (
+                session_id        TEXT PRIMARY KEY,
+                paid_minor_units  INTEGER NOT NULL,
+                updated_at_utc    TEXT NOT NULL
+            );
+
+            CREATE TABLE offline_payments (
+                payment_id        TEXT PRIMARY KEY,
+                session_id        TEXT NOT NULL,
+                device_id         TEXT NOT NULL,
+                amount_minor_units INTEGER NOT NULL,
+                method            TEXT NOT NULL,
+                user_id           TEXT NOT NULL,
+                user_name         TEXT NOT NULL,
+                recorded_at_utc   TEXT NOT NULL,
+                idempotency_key   TEXT NULL UNIQUE
+            );
+            CREATE INDEX ix_offline_payments_session ON offline_payments(session_id);
+            CREATE INDEX ix_offline_payments_time ON offline_payments(recorded_at_utc);
             """;
     }
 }

@@ -68,7 +68,7 @@ public sealed record SessionResult(SessionOutcome Outcome, EdgeSession? Session,
 /// Доменное хранилище Edge. Каждое бизнес-изменение и соответствующее событие outbox пишутся
 /// одной транзакцией SQLite — событие не может потеряться или появиться без изменения.
 /// </summary>
-public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimeProvider time)
+public sealed partial class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimeProvider time)
 {
     // ---------- Конфигурация ----------
 
@@ -111,6 +111,8 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
                     c.Exec(tx, "DELETE FROM diskless_candidates WHERE hardware_id = $hw", ("$hw", hardwareId));
                 }
             }
+
+            ReplaceOfflineStaff(c, tx, config.OfflineStaff);
 
             // Страховка к команде RevokeDevice: отозванные устройства приходят и в конфигурации.
             foreach (var id in config.RevokedDeviceIds)
@@ -425,6 +427,9 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
                     break;
                 case EdgeCommandKind.RefreshConfig:
                     refreshConfig = true;
+                    break;
+                case EdgeCommandKind.CashSync when command.CashSync is { } sync:
+                    ApplyCashSync(c, tx, sync, now);
                     break;
             }
 

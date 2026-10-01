@@ -15,7 +15,7 @@ public static class Mapping
     public static UserView ToView(this User u, string organizationName, bool mfaSetupRequired) => new(
         u.Id, u.Email, u.DisplayName, u.Role, u.OrganizationId, organizationName,
         u.MustChangePassword || mfaSetupRequired ? new List<string>() : Security.Permissions.For(u.Role).Order().ToList(),
-        u.MustChangePassword, u.MfaEnabled, mfaSetupRequired);
+        u.MustChangePassword, u.MfaEnabled, mfaSetupRequired, u.OfflinePinHash is not null);
 
     /// <param name="locationIds">Назначенные локации (для сотрудника с ограниченным доступом).</param>
     public static StaffMemberView ToStaffView(this User u, IReadOnlyList<string> locationIds) => new(

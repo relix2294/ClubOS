@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using ClubOS.CloudApi.Auth;
 using ClubOS.CloudApi.Data;
+using ClubOS.CloudApi.Edges;
 using ClubOS.CloudApi.Domain;
 using ClubOS.CloudApi.Infrastructure;
 using ClubOS.CloudApi.Security;
@@ -360,6 +361,7 @@ public static partial class CashEndpoints
         audit.Write(staff.TenantId, locationId, staff.Actor, "cash.payment", $"device:{session.DeviceId}", AuditResults.Success,
             session.CorrelationId,
             new { operationId = operation.Id, sessionId, amount = request.AmountMinorUnits, request.Method, charge, dueBefore = due });
+        EnqueueCashSync(db, staff.TenantId, locationId, session.Id, paid + request.AmountMinorUnits, time.GetUtcNow());
         return await CommitAsync(db, tx, operation, staff.TenantId, request.IdempotencyKey, CashOperationKinds.SessionPayment, sessionId, ct);
     }
 
@@ -460,6 +462,7 @@ public static partial class CashEndpoints
         audit.Write(staff.TenantId, locationId, staff.Actor, "cash.refund", $"device:{session.DeviceId}", AuditResults.Success,
             session.CorrelationId,
             new { operationId = operation.Id, sessionId, amount = request.AmountMinorUnits, request.Method, reason, paidBefore = paid, overpaid });
+        EnqueueCashSync(db, staff.TenantId, locationId, session.Id, paid - request.AmountMinorUnits, time.GetUtcNow());
         return await CommitAsync(db, tx, operation, staff.TenantId, request.IdempotencyKey, CashOperationKinds.Refund, sessionId, ct);
     }
 
@@ -605,6 +608,18 @@ public static partial class CashEndpoints
     internal static async Task<long> CashOnHandAsync(ClubOsDbContext db, CashShift shift, CancellationToken ct) =>
         shift.OpeningCashMinorUnits + await db.CashOperations
             .Where(x => x.ShiftId == shift.Id && x.Method == PaymentMethods.Cash).SumAsync(x => x.AmountMinorUnits, ct);
+
+    /// <summary>Сообщить Edge, сколько оплачено по сессии (D-023): касса Edge без интернета покажет верный долг.</summary>
+    public static void EnqueueCashSync(ClubOsDbContext db, string tenantId, string locationId, string sessionId, long paid,
+        DateTimeOffset now) =>
+        EdgeQueue.Enqueue(db, tenantId, locationId, new EdgeCommand
+        {
+            Id = Ids.New("ecm"),
+            Kind = EdgeCommandKind.CashSync,
+            IssuedAtUtc = now,
+            ExpiresAtUtc = now.AddDays(7),
+            CashSync = new CashSyncCommand { SessionId = sessionId, PaidMinorUnits = paid }
+        });
 
     internal static CashOperation NewOperation(StaffContext staff, CashShift shift, string kind, string method, long amount,
         TimeProvider time, string? idempotencyKey) => new()

@@ -29,6 +29,48 @@ public static class StaffManagementEndpoints
 
         app.MapPost("/api/v1/me/password", ChangeOwnPassword).WithTags("Auth")
             .RequireAuthorization(Policies.Staff).RequireRateLimiting(RateLimits.Auth);
+        app.MapPost("/api/v1/me/offline-pin", SetOfflinePin).WithTags("Auth")
+            .RequirePermission(Permissions.CashOperate).RequireRateLimiting(RateLimits.Auth);
+    }
+
+    /// <summary>
+    /// PIN офлайн-кассы (D-023): вход в кассу Edge клуба, когда нет интернета. Подтверждается паролем; хэш уходит на
+    /// Edge локаций сотрудника в конфигурации (в течение минуты, сразу — командой RefreshConfig).
+    /// </summary>
+    private static async Task<IResult> SetOfflinePin(OfflinePinRequest request, HttpContext http, ClubOsDbContext db,
+        AuditWriter audit, TimeProvider time, CancellationToken ct)
+    {
+        var me = StaffContext.From(http.User);
+        var user = await db.Users.SingleAsync(x => x.Id == me.UserId && x.OrganizationId == me.TenantId, ct);
+        if (!PasswordHasher.Verify(request.CurrentPassword ?? string.Empty, user.PasswordHash))
+        {
+            audit.Write(me.TenantId, null, me.Actor, "auth.offline_pin_set", $"user:{user.Id}", AuditResults.Denied);
+            await db.SaveChangesAsync(ct);
+            return Problems.Validation("wrong_password", "Текущий пароль указан неверно.");
+        }
+
+        if (request.Pin is not null && !ClubOS.Contracts.OfflinePin.IsValidFormat(request.Pin))
+        {
+            return Problems.Validation("weak_pin", "PIN — 6–8 цифр, не одинаковые и не подряд (не 123456).");
+        }
+
+        user.OfflinePinHash = request.Pin is null ? null : ClubOS.Contracts.OfflinePin.Hash(request.Pin);
+        var now = time.GetUtcNow();
+        foreach (var locationId in await db.Locations.Where(x => x.OrganizationId == me.TenantId).Select(x => x.Id).ToListAsync(ct))
+        {
+            Edges.EdgeQueue.Enqueue(db, me.TenantId, locationId, new ClubOS.Contracts.EdgeCommand
+            {
+                Id = Ids.New("ecm"),
+                Kind = ClubOS.Contracts.EdgeCommandKind.RefreshConfig,
+                IssuedAtUtc = now,
+                ExpiresAtUtc = now.AddDays(1)
+            });
+        }
+
+        audit.Write(me.TenantId, null, me.Actor, request.Pin is null ? "auth.offline_pin_cleared" : "auth.offline_pin_set",
+            $"user:{user.Id}", AuditResults.Success);
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(new { offlinePinSet = user.OfflinePinHash is not null });
     }
 
     private static async Task<IResult> List(HttpContext http, ClubOsDbContext db, CancellationToken ct)

@@ -44,6 +44,9 @@ public sealed record EdgeConfigResponse
     /// сессий, начатых на Edge локально. Edge не зависит от базы часовых поясов Windows.
     /// </summary>
     public int UtcOffsetMinutes { get; init; }
+
+    /// <summary>Кассиры с PIN офлайн-кассы, у которых есть доступ к этой локации (D-023).</summary>
+    public IReadOnlyList<EdgeOfflineStaff> OfflineStaff { get; init; } = [];
 }
 
 public sealed record EdgeZoneConfig
@@ -115,7 +118,10 @@ public enum EdgeCommandKind
     RevokeDevice,
 
     /// <summary>Изменился список устройств (например, подтверждён бездисковый ПК): Edge сразу перечитывает конфигурацию.</summary>
-    RefreshConfig
+    RefreshConfig,
+
+    /// <summary>Оплачено по сессии в Cloud (D-023): касса Edge без интернета видит верный остаток долга.</summary>
+    CashSync
 }
 
 /// <summary>Элемент очереди Cloud → Edge. Edge дедуплицирует по <see cref="Id"/>.</summary>
@@ -130,6 +136,7 @@ public sealed record EdgeCommand
     public EndSessionCommand? EndSession { get; init; }
     public ExtendSessionCommand? ExtendSession { get; init; }
     public RevokeDeviceCommand? RevokeDevice { get; init; }
+    public CashSyncCommand? CashSync { get; init; }
 }
 
 public sealed record RevokeDeviceCommand

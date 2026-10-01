@@ -2,6 +2,7 @@ using System.Text.Json;
 using ClubOS.CloudApi.Data;
 using ClubOS.CloudApi.Domain;
 using ClubOS.CloudApi.Infrastructure;
+using ClubOS.CloudApi.Security;
 using ClubOS.Contracts;
 using ClubOS.Security;
 using Microsoft.EntityFrameworkCore;
@@ -91,6 +92,18 @@ public static class EdgeEndpoints
             .Where(x => x.LocationId == edge.LocationId && x.TenantId == edge.TenantId).ToListAsync(ct);
         var devices = all.Where(x => x.RevokedAtUtc is null).ToList();
 
+        // Кассиры с PIN офлайн-кассы и доступом к этой локации (D-023).
+        var withPin = await db.Users.AsNoTracking()
+            .Where(x => x.OrganizationId == edge.TenantId && x.IsActive && !x.MustChangePassword && x.OfflinePinHash != null)
+            .ToListAsync(ct);
+        var granted = await db.StaffLocationAccess.AsNoTracking().Where(x => x.LocationId == edge.LocationId)
+            .Select(x => x.UserId).ToListAsync(ct);
+        var offlineStaff = withPin
+            .Where(u => Permissions.Has(u.Role, Permissions.CashOperate) && (u.AllLocations || granted.Contains(u.Id)))
+            .OrderBy(u => u.DisplayName)
+            .Select(u => new EdgeOfflineStaff { UserId = u.Id, DisplayName = u.DisplayName, PinHash = u.OfflinePinHash! })
+            .ToList();
+
         return Results.Ok(new EdgeConfigResponse
         {
             LocationId = location.Id,
@@ -116,7 +129,8 @@ public static class EdgeEndpoints
                 CertificatePem = d.CertificatePem,
                 HardwareId = d.HardwareId
             }).ToList(),
-            RevokedDeviceIds = all.Where(x => x.RevokedAtUtc is not null).Select(x => x.Id).ToList()
+            RevokedDeviceIds = all.Where(x => x.RevokedAtUtc is not null).Select(x => x.Id).ToList(),
+            OfflineStaff = offlineStaff
         });
     }
 

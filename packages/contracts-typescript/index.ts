@@ -274,6 +274,8 @@ export interface UserView {
   mfaEnabled: boolean;
   /** Роль требует MFA, а она не настроена: доступна только её настройка. */
   mfaSetupRequired: boolean;
+  /** Задан PIN кассы Edge без интернета (D-023). */
+  offlinePinSet?: boolean;
 }
 
 // ---- Персонал (ТЗ §8) ----

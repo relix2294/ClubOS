@@ -69,10 +69,19 @@ public sealed class SyncIngestor(ClubOsDbContext db, AuditWriter audit, TimeProv
             }
             catch (DbUpdateException ex) when (IsUniqueViolation(ex))
             {
-                // Гонка двух одновременных доставок одного события: вторая упирается в PK.
+                // Гонка двух одновременных доставок одного события: вторая упирается в PK. Если же событие так и не
+                // записано (конфликт другой строки, например одновременное открытие смены), — не отвечаем ничего:
+                // Edge пришлёт его снова, деньги не теряются.
                 await tx.RollbackAsync(ct);
                 db.ChangeTracker.Clear();
-                duplicates.Add(evt.EventId);
+                if (await db.InboxReceipts.AsNoTracking().AnyAsync(x => x.EventId == evt.EventId, ct))
+                {
+                    duplicates.Add(evt.EventId);
+                }
+                else
+                {
+                    logger.LogWarning("Event {EventId}: conflict, will be retried by Edge", evt.EventId);
+                }
             }
             finally
             {
@@ -119,9 +128,83 @@ public sealed class SyncIngestor(ClubOsDbContext db, AuditWriter audit, TimeProv
                 return await ApplyCommandState(edge, evt, ContractJson.FromElement<CommandStateChangedPayload>(evt.Payload), ct);
             case EventTypes.DeviceConnectivityChanged:
                 return await ApplyConnectivity(edge, evt, ContractJson.FromElement<DeviceConnectivityChangedPayload>(evt.Payload), ct);
+            case EventTypes.OfflinePaymentRecorded:
+                return await ApplyOfflinePayment(edge, evt, ContractJson.FromElement<OfflinePaymentRecordedPayload>(evt.Payload), ct);
             default:
                 return $"unknown eventType {evt.EventType}";
         }
+    }
+
+    /// <summary>
+    /// Оплата в кассе Edge без интернета (D-023). Деньги уже получены — событие не отклоняется из-за состояния
+    /// Cloud: нет открытой смены — она открывается автоматически (остаток на начало 0), сумма больше долга —
+    /// проводится как есть (в «К расчёту» будет переплата). Идемпотентность — ключ операции из PaymentId.
+    /// </summary>
+    private async Task<string?> ApplyOfflinePayment(EdgeContext edge, EventEnvelope evt, OfflinePaymentRecordedPayload p,
+        CancellationToken ct)
+    {
+        if (p.AmountMinorUnits is < 1 or > CashMath.MaxAmountMinorUnits || p.Method is not (PaymentMethods.Cash or PaymentMethods.Card))
+        {
+            return "invalid offline payment";
+        }
+
+        var key = $"edge-{p.PaymentId}";
+        if (key.Length > 64 || await db.CashOperations.AnyAsync(x => x.TenantId == edge.TenantId && x.IdempotencyKey == key, ct))
+        {
+            return key.Length > 64 ? "invalid paymentId" : null; // уже проведена (повтор после потери ответа)
+        }
+
+        var session = await db.Sessions.SingleOrDefaultAsync(
+            x => x.Id == p.SessionId && x.TenantId == edge.TenantId && x.LocationId == edge.LocationId, ct);
+        var location = await db.Locations.AsNoTracking().SingleAsync(x => x.Id == edge.LocationId, ct);
+        var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == p.UserId && x.OrganizationId == edge.TenantId, ct);
+        var actor = user is null ? edge.Actor : $"user:{user.Id}";
+
+        var shift = await CashEndpoints.LockOpenShiftAsync(db, edge.TenantId, edge.LocationId, ct);
+        if (shift is null)
+        {
+            shift = new CashShift
+            {
+                Id = Ids.New("shf"),
+                TenantId = edge.TenantId,
+                LocationId = edge.LocationId,
+                Currency = location.Currency,
+                OpenedBy = actor,
+                OpenedAtUtc = time.GetUtcNow(),
+                OpeningCashMinorUnits = 0
+            };
+            db.CashShifts.Add(shift);
+            audit.Write(edge.TenantId, edge.LocationId, actor, "cash.shift_opened", $"location:{edge.LocationId}", AuditResults.Success,
+                evt.CorrelationId, new { shiftId = shift.Id, openingCash = 0, automatic = true, reason = "offline_payment" });
+        }
+
+        var operation = new CashOperation
+        {
+            Id = Ids.New("cop"),
+            TenantId = edge.TenantId,
+            LocationId = edge.LocationId,
+            ShiftId = shift.Id,
+            Kind = CashOperationKinds.SessionPayment,
+            Method = p.Method,
+            AmountMinorUnits = p.AmountMinorUnits,
+            Currency = shift.Currency,
+            SessionId = session?.Id,
+            DeviceId = p.DeviceId,
+            Reason = $"Касса Edge без интернета, {p.RecordedAtUtc:yyyy-MM-dd HH:mm} UTC",
+            CreatedBy = actor,
+            CreatedAtUtc = time.GetUtcNow(),
+            IdempotencyKey = key
+        };
+        db.CashOperations.Add(operation);
+        audit.Write(edge.TenantId, edge.LocationId, actor, "cash.payment", $"device:{p.DeviceId}", AuditResults.Success, evt.CorrelationId,
+            new { operationId = operation.Id, sessionId = p.SessionId, amount = p.AmountMinorUnits, p.Method, offline = true, recordedAt = p.RecordedAtUtc, via = edge.Actor });
+        if (session is not null)
+        {
+            var paid = CashMath.Paid(await db.CashOperations.Where(x => x.SessionId == session.Id).ToListAsync(ct)) + p.AmountMinorUnits;
+            CashEndpoints.EnqueueCashSync(db, edge.TenantId, edge.LocationId, session.Id, paid, time.GetUtcNow());
+        }
+
+        return null;
     }
 
     private async Task<Device?> FindDevice(EdgeContext edge, string deviceId, CancellationToken ct) =>

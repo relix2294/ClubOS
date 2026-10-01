@@ -99,6 +99,9 @@ public sealed class User
     public DateTimeOffset? PasswordChangedAtUtc { get; set; }
     public DateTimeOffset? LastLoginAtUtc { get; set; }
 
+    /// <summary>PIN офлайн-кассы Edge (D-023), хэш <see cref="ClubOS.Contracts.OfflinePin"/>; null — не задан.</summary>
+    public string? OfflinePinHash { get; set; }
+
     // ---- MFA (TOTP, ТЗ §8) ----
 
     public bool MfaEnabled { get; set; }

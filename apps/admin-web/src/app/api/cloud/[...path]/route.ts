@@ -29,6 +29,7 @@ const ALLOWED = [
   /^edges\/[\w-]+\/revoke$/,
   /^pki\/ca$/,
   /^me\/mfa(\/(setup|recovery-codes))?$/,
+  /^me\/offline-pin$/,
   /^locations\/[\w-]+\/cash(\/(shifts|movements))?$/,
   /^cash\/shifts\/[\w-]+(\/close)?$/,
   /^sessions\/[\w-]+\/(payments|refunds)$/,

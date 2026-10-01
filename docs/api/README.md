@@ -224,6 +224,25 @@ HTTPS 7443: сертификат Edge выпускает dev CA организа
 | POST | `/agent/v1/commands/{commandId}/result` | `{state: Acknowledged/Succeeded/Failed, error?}`, переходы только вперёд |
 | GET | `/health` | состояние Edge, связь с Cloud, размер outbox |
 
+## Касса Edge без интернета (D-023, LAN клуба: порты API агентов 7443/7070)
+
+`POST /api/v1/me/offline-pin` (Cloud, `cash.operate`): `{currentPassword, pin}` — 6–8 цифр (не тривиальный), `pin: null` —
+удалить. Хэш PBKDF2-SHA256 уходит в `EdgeConfigResponse.offlineStaff` (активные сотрудники с `cash.operate` и доступом к
+локации). Оплата в Cloud отправляет Edge команду `CashSync {sessionId, paidMinorUnits}`.
+
+| Метод | Путь (Edge) | Назначение |
+|-------|------|-----------|
+| GET | `/cash` | Страница кассы (без внешних ресурсов) |
+| GET | `/cash/api/staff` | Кассиры с PIN (`userId`, `displayName`) |
+| POST | `/cash/api/login` | `{userId, pin}`, заголовок `X-ClubOS-Cash: 1` → cookie `clubos_cash` (HttpOnly, SameSite=Strict, 12 ч, HMAC-ключ до перезапуска Edge). 5 неверных PIN — **429** на 5 мин |
+| GET | `/cash/api/payable` | Сессии с долгом (48 ч): начислено (Edge), оплачено в Cloud (CashSync) и на Edge, долг; последние оплаты Edge с признаком отправки; число неотправленных событий |
+| POST | `/cash/api/payments` | `{sessionId, amountMinorUnits, method: Cash/Card, idempotencyKey}` — не больше долга (**409**), повтор по ключу — та же оплата. Событие `OfflinePaymentRecorded` в outbox |
+| POST | `/cash/api/logout` | Выход |
+
+Cloud проводит `OfflinePaymentRecorded` в открытую смену (нет — открывает автоматически, аудит `cash.shift_opened`
+с `automatic: true`) операцией `SessionPayment` с ключом `edge-<paymentId>` от имени кассира; событие не отклоняется
+из-за состояния Cloud (деньги уже получены): сумма больше долга даёт переплату.
+
 ## Edge: локальный admin API (127.0.0.1:7071, Bearer из `edge-data/local-admin.token`)
 
 Используется `edge-cli`: `GET /local/v1/status`, `GET /local/v1/devices`, `GET /local/v1/sessions[?active=true]`,

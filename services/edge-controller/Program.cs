@@ -124,6 +124,7 @@ app.MapGet("/health", (EdgeIdentityStore identity, EdgeStore store, CloudClient 
 app.UseSignedBodyCapture("/agent/v1");
 app.MapAgentEndpoints();
 app.MapLocalEndpoints();
+app.MapOfflineCashEndpoints();
 
 app.Run();
 

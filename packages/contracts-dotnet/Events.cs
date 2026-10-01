@@ -9,6 +9,9 @@ public static class EventTypes
     public const string SessionExtended = "SessionExtended";
     public const string CommandStateChanged = "CommandStateChanged";
     public const string DeviceConnectivityChanged = "DeviceConnectivityChanged";
+
+    /// <summary>Оплата в кассе Edge без интернета (D-023).</summary>
+    public const string OfflinePaymentRecorded = "OfflinePaymentRecorded";
 }
 
 public sealed record SessionStartedPayload

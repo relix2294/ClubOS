@@ -95,6 +95,9 @@ export default function CashPage() {
         </p>
       )}
       {can("reports.view") && <ShiftHistory locationId={location.locationId} timeZone={location.timezone} />}
+      <p className="text-xs text-slate-500" data-testid="offline-cash-hint">
+        {t.cash.offlineHint}
+      </p>
     </div>
   );
 }

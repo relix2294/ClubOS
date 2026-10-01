@@ -26,7 +26,11 @@ public sealed record UserView(
     IReadOnlyList<string> Permissions,
     bool MustChangePassword,
     bool MfaEnabled,
-    bool MfaSetupRequired);
+    bool MfaSetupRequired,
+    bool OfflinePinSet = false);
+
+/// <param name="Pin">6–8 цифр; null — удалить PIN.</param>
+public sealed record OfflinePinRequest(string? CurrentPassword, string? Pin);
 
 // ---- MFA (TOTP, ТЗ §8) ----
 
