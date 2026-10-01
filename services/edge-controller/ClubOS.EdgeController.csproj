@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>ClubOS.EdgeController</RootNamespace>
+    <AssemblyName>ClubOS.EdgeController</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../packages/contracts-dotnet/ClubOS.Contracts.csproj" />
+    <ProjectReference Include="../../packages/security-dotnet/ClubOS.Security.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ClubOS.Unit.Tests" />
+  </ItemGroup>
+
+</Project>

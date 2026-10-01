@@ -1,0 +1,2 @@
+# Windows-скрипты: cmd.exe требует CRLF; BOM у .ps1 и .txt сохраняется как есть.
+*.cmd text eol=crlf

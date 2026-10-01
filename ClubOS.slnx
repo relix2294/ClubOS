@@ -1,8 +1,23 @@
 <Solution>
   <Folder Name="/packages/">
     <Project Path="packages/contracts-dotnet/ClubOS.Contracts.csproj" />
+    <Project Path="packages/security-dotnet/ClubOS.Security.csproj" />
+  </Folder>
+  <Folder Name="/services/">
+    <Project Path="services/cloud-api/ClubOS.CloudApi.csproj" />
+    <Project Path="services/edge-controller/ClubOS.EdgeController.csproj" />
+    <Project Path="services/edge-cli/ClubOS.EdgeCli.csproj" />
+  </Folder>
+  <Folder Name="/services/windows-agent/">
+    <Project Path="services/windows-agent/ClubOS.Agent.Core/ClubOS.Agent.Core.csproj" />
+    <Project Path="services/windows-agent/ClubOS.Agent.Service/ClubOS.Agent.Service.csproj" />
+    <Project Path="services/windows-agent/ClubOS.Agent.SessionHost/ClubOS.Agent.SessionHost.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/device-simulator/ClubOS.DeviceSimulator.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/unit/ClubOS.Unit.Tests.csproj" />
+    <Project Path="tests/integration/ClubOS.Integration.Tests.csproj" />
   </Folder>
 </Solution>

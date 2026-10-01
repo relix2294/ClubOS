@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>ClubOS.Security</RootNamespace>
+    <AssemblyName>ClubOS.Security</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!--
+    Общая криптография M0 (только BCL): development CA, ключи устройств,
+    подписанные токены запросов Edge→Cloud и Agent→Edge (ТЗ §3.1, §27.2).
+  -->
+
+</Project>
