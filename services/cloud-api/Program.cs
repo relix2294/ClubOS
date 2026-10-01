@@ -179,6 +179,7 @@ app.MapLocationEndpoints();
 app.MapRevocationEndpoints();
 app.MapCashEndpoints();
 app.MapDisklessEndpoints();
+app.MapClientEndpoints();
 
 await app.RunAsync();
 return 0;

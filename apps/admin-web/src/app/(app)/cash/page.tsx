@@ -162,6 +162,8 @@ function ShiftCard({ shift, timeZone }: { shift: CashShiftView; timeZone: string
         <Stat label={t.cash.refunds} value={m(s.cashRefundsMinorUnits + s.cardRefundsMinorUnits)} />
         <Stat label={t.cash.cashIn} value={m(s.cashInMinorUnits)} />
         <Stat label={t.cash.cashOut} value={m(s.cashOutMinorUnits)} />
+        <Stat label={t.cash.balancePayments} value={m(s.balancePaymentsMinorUnits - s.balanceRefundsMinorUnits)} testId="balance-payments" />
+        <Stat label={t.cash.topUps} value={m(s.topUpCashMinorUnits + s.topUpCardMinorUnits)} testId="topups" />
         <Stat label={t.cash.expected} value={m(s.expectedCashMinorUnits)} strong testId="expected-cash" />
         <Stat label={t.cash.revenue} value={m(s.revenueMinorUnits)} strong testId="shift-revenue" />
       </div>
@@ -230,7 +232,14 @@ function PayableRow({ row, timeZone, onDone }: { row: PayableSessionView; timeZo
 
   return (
     <tr data-testid="payable-row" data-session={row.sessionId}>
-      <td className="py-2 pr-4 font-medium">{row.deviceName}</td>
+      <td className="py-2 pr-4 font-medium">
+        {row.deviceName}
+        {row.clientId && (
+          <span className="block text-xs font-normal text-slate-500" data-testid="payable-client">
+            {row.clientName} · {t.clients.balance} {formatMoney(row.clientBalanceMinorUnits ?? 0, row.currency)}
+          </span>
+        )}
+      </td>
       <td className="py-2 pr-4 whitespace-nowrap text-slate-600">
         {row.state === "Ended" ? formatDateTime(row.endedAtUtc, timeZone) : `${sessionStateLabel[row.state]}, ${t.cash.running} ${formatTime(row.plannedEndAtUtc, timeZone)}`}
       </td>
@@ -249,11 +258,27 @@ function PayableRow({ row, timeZone, onDone }: { row: PayableSessionView; timeZo
             onChange={(e) => setAmount(e.target.value)}
           />
           {overpaid ? (
-            <Button variant="secondary" className="py-1" disabled={action.busy} onClick={() => submit("Cash")}>
-              {t.cash.refundOverpaid}
-            </Button>
+            <>
+              <Button variant="secondary" className="py-1" disabled={action.busy} onClick={() => submit("Cash")}>
+                {t.cash.refundOverpaid}
+              </Button>
+              {row.clientId && (
+                <Button variant="secondary" className="py-1" disabled={action.busy} onClick={() => submit("Balance")}>
+                  {t.cash.refundToBalance}
+                </Button>
+              )}
+            </>
           ) : (
             <>
+              {row.clientId && (
+                <Button
+                  className="py-1"
+                  disabled={action.busy || (row.clientBalanceMinorUnits ?? 0) <= 0}
+                  onClick={() => submit("Balance")}
+                >
+                  {t.cash.payBalance}
+                </Button>
+              )}
               <Button className="py-1" disabled={action.busy} onClick={() => submit("Cash")}>
                 {t.cash.payCash}
               </Button>
@@ -425,6 +450,7 @@ function OperationsCard({ operations, timeZone, onDone }: { operations: CashOper
                   <td className="py-2 pr-4 whitespace-nowrap text-slate-600">{formatTime(op.createdAtUtc, timeZone)}</td>
                   <td className="py-2 pr-4">
                     {t.cash.kinds[op.kind]}
+                    {op.clientName && <span className="block text-xs text-slate-500">{op.clientName}</span>}
                     {op.reason && <span className="block text-xs text-slate-500">{op.reason}</span>}
                   </td>
                   <td className="py-2 pr-4">{t.cash.methods[op.method]}</td>

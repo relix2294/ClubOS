@@ -6,6 +6,7 @@ import { useState, type FormEvent } from "react";
 import {
   SessionLimits,
   type AuditEventView,
+  type ClientView,
   type CommandView,
   type DeviceView,
   type ExtendSessionRequest,
@@ -15,6 +16,7 @@ import {
   type StartSessionRequest,
 } from "@clubos/contracts";
 import { useShell } from "@/components/AppShell";
+import { ClientPicker } from "@/components/ClientPicker";
 import { useSessionClock } from "@/components/SessionTimer";
 import { CommandStateBadge, DeviceStatusBadge, SessionStateBadge } from "@/components/StatusBadge";
 import { Button, Card, EmptyState, ErrorState, Field, Loading, SimulatedBadge, inputClass } from "@/components/ui";
@@ -120,6 +122,7 @@ function SessionCard({ device, onChange }: { device: DeviceView; onChange: () =>
   const [error, setError] = useState<string>();
   const [limit, setLimit] = useState<string>("60");
   const [custom, setCustom] = useState("45");
+  const [client, setClient] = useState<ClientView | null>(null);
   const [extendedFrom, setExtendedFrom] = useState<string | null>(null);
   const session = device.activeSession;
   const clock = useSessionClock(session);
@@ -150,8 +153,11 @@ function SessionCard({ device, onChange }: { device: DeviceView; onChange: () =>
       setError(`Лимит — от ${SessionLimits.minDurationMinutes} до ${SessionLimits.maxDurationMinutes} минут.`);
       return;
     }
-    const body: StartSessionRequest = { durationMinutes: minutes };
-    void act(() => apiPost(`devices/${device.deviceId}/sessions`, body));
+    const body: StartSessionRequest = { durationMinutes: minutes, clientId: client?.clientId ?? null };
+    void act(async () => {
+      await apiPost(`devices/${device.deviceId}/sessions`, body);
+      setClient(null);
+    });
   };
 
   const extend = async (minutes: number) => {
@@ -230,6 +236,12 @@ function SessionCard({ device, onChange }: { device: DeviceView; onChange: () =>
               </Field>
             )}
             <p className="text-xs text-slate-500">{t.device.limitHint}</p>
+            {can("cash.operate") && (
+              <>
+                <ClientPicker value={client} onChange={setClient} />
+                <p className="text-xs text-slate-500">{t.clients.pickHint}</p>
+              </>
+            )}
             <div>
               <Button disabled={busy || device.status === "Offline"} onClick={start}>
                 {t.device.startSession}

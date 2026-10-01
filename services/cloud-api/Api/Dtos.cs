@@ -139,10 +139,11 @@ public sealed record SessionView(
     string? EndedBy,
     int? DurationMinutes,
     DateTimeOffset? PlannedEndAtUtc,
-    string? EndReason);
+    string? EndReason,
+    string? ClientId = null);
 
-/// <summary>Тело запроса старта; пустое тело — открытая сессия.</summary>
-public sealed record StartSessionRequestBody(int? DurationMinutes);
+/// <summary>Тело запроса старта; пустое тело — открытая сессия. ClientId — сессия клиента (оплата с его баланса).</summary>
+public sealed record StartSessionRequestBody(int? DurationMinutes, string? ClientId = null);
 
 public sealed record ExtendSessionRequest(int Minutes);
 

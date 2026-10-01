@@ -300,6 +300,9 @@ public sealed class Session
     public required string StartedBy { get; set; }
     public string? EndedBy { get; set; }
     public required string CorrelationId { get; set; }
+
+    /// <summary>Клиент, для которого начата сессия (оплата с его баланса по умолчанию).</summary>
+    public string? ClientId { get; set; }
 }
 
 /// <summary>
@@ -353,7 +356,14 @@ public static class PaymentMethods
     public const string Cash = "Cash";
     public const string Card = "Card";
 
-    public static bool IsValid(string? method) => method is Cash or Card;
+    /// <summary>Списание с баланса клиента (только оплата и возврат по сессии; деньги в кассу не поступают).</summary>
+    public const string Balance = "Balance";
+
+    /// <summary>Способ оплаты сессии или возврата.</summary>
+    public static bool IsValid(string? method) => method is Cash or Card or Balance;
+
+    /// <summary>Деньги, которые проходят через кассу: наличные или карта (пополнение баланса, внесение, изъятие).</summary>
+    public static bool IsMoney(string? method) => method is Cash or Card;
 }
 
 /// <summary>Виды кассовых операций.</summary>
@@ -370,6 +380,9 @@ public static class CashOperationKinds
 
     /// <summary>Изъятие наличных из кассы (инкассация, расходы).</summary>
     public const string CashOut = "CashOut";
+
+    /// <summary>Пополнение баланса клиента наличными или картой: деньги в кассе, но это аванс, а не выручка.</summary>
+    public const string BalanceTopUp = "BalanceTopUp";
 }
 
 /// <summary>
@@ -419,9 +432,68 @@ public sealed class CashOperation
     public string? DeviceId { get; set; }
     public string? Reason { get; set; }
 
+    /// <summary>Клиент: пополнение баланса или оплата/возврат через баланс.</summary>
+    public string? ClientId { get; set; }
+
     public required string CreatedBy { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; }
 
     /// <summary>Ключ идемпотентности от клиента: повтор запроса не создаёт вторую операцию.</summary>
     public string? IdempotencyKey { get; set; }
+}
+
+/// <summary>
+/// Клиент клуба: телефон (уникален в организации), имя и баланс (аванс). Баланс — сумма записей
+/// <see cref="ClientLedgerEntry"/>; хранится и в строке клиента, обновляется в той же транзакции под блокировкой.
+/// </summary>
+public sealed class Client
+{
+    public required string Id { get; set; }
+    public required string TenantId { get; set; }
+
+    /// <summary>Только цифры с кодом страны: 992901234567.</summary>
+    public required string Phone { get; set; }
+
+    public required string DisplayName { get; set; }
+    public required string Currency { get; set; }
+    public long BalanceMinorUnits { get; set; }
+    public bool IsBlocked { get; set; }
+    public string? Note { get; set; }
+    public required string CreatedBy { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+}
+
+public static class ClientLedgerKinds
+{
+    /// <summary>Пополнение через кассу (наличные/карта).</summary>
+    public const string TopUp = "TopUp";
+
+    /// <summary>Оплата сессии с баланса.</summary>
+    public const string SessionPayment = "SessionPayment";
+
+    /// <summary>Возврат по сессии на баланс.</summary>
+    public const string SessionRefund = "SessionRefund";
+
+    /// <summary>Ручная корректировка администратором (бонус, исправление) — с причиной.</summary>
+    public const string Adjustment = "Adjustment";
+}
+
+/// <summary>Иммутабельная запись движения по балансу клиента (UPDATE/DELETE запрещены триггером БД).</summary>
+public sealed class ClientLedgerEntry
+{
+    public required string Id { get; set; }
+    public required string TenantId { get; set; }
+    public required string ClientId { get; set; }
+    public required string Kind { get; set; }
+
+    /// <summary>Со знаком: плюс — баланс вырос, минус — списание.</summary>
+    public long AmountMinorUnits { get; set; }
+
+    public long BalanceAfterMinorUnits { get; set; }
+    public string? LocationId { get; set; }
+    public string? SessionId { get; set; }
+    public string? CashOperationId { get; set; }
+    public string? Reason { get; set; }
+    public required string CreatedBy { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
 }

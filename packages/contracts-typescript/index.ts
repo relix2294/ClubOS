@@ -152,12 +152,15 @@ export interface SessionView {
   plannedEndAtUtc: string | null;
   /** "staff" | "timeLimit" — причина завершения. */
   endReason: SessionEndReason | null;
+  /** Клиент клуба, на которого начата сессия (оплата с его баланса). */
+  clientId?: string | null;
 }
 
 export type SessionEndReason = "staff" | "timeLimit";
 
 export interface StartSessionRequest {
   durationMinutes?: number | null;
+  clientId?: string | null;
 }
 
 export interface ExtendSessionRequest {
@@ -408,9 +411,10 @@ export interface RecoveryCodesResponse {
 
 // ---- Касса и отчёты (ТЗ §12) ----
 
-export type PaymentMethod = "Cash" | "Card";
+/** Balance — списание с баланса клиента (аванс); в кассу наличных не попадает. */
+export type PaymentMethod = "Cash" | "Card" | "Balance";
 
-export type CashOperationKind = "SessionPayment" | "Refund" | "CashIn" | "CashOut";
+export type CashOperationKind = "SessionPayment" | "Refund" | "CashIn" | "CashOut" | "BalanceTopUp";
 
 export interface ShiftTotals {
   cashPaymentsMinorUnits: number;
@@ -421,9 +425,14 @@ export interface ShiftTotals {
   cashOutMinorUnits: number;
   /** Наличные по учёту: остаток на начало + все движения наличных. */
   expectedCashMinorUnits: number;
-  /** Оплаты минус возвраты (наличные и карта). */
+  /** Оплаты сессий минус возвраты (наличные, карта, баланс). Пополнения балансов — не выручка. */
   revenueMinorUnits: number;
   paymentCount: number;
+  balancePaymentsMinorUnits: number;
+  balanceRefundsMinorUnits: number;
+  /** Пополнения балансов клиентов наличными / картой (в кассе, но аванс). */
+  topUpCashMinorUnits: number;
+  topUpCardMinorUnits: number;
 }
 
 export interface CashShiftView {
@@ -459,6 +468,8 @@ export interface CashOperationView {
   createdBy: string;
   createdByName: string;
   createdAtUtc: string;
+  clientId: string | null;
+  clientName: string | null;
 }
 
 /** Сессия с незакрытым расчётом: due > 0 — долг клиента, due < 0 — переплата к возврату. */
@@ -474,6 +485,9 @@ export interface PayableSessionView {
   chargeMinorUnits: number;
   paidMinorUnits: number;
   dueMinorUnits: number;
+  clientId: string | null;
+  clientName: string | null;
+  clientBalanceMinorUnits: number | null;
 }
 
 export interface CashDeskView {
@@ -493,6 +507,10 @@ export interface RevenueDayView {
   cardMinorUnits: number;
   refundsMinorUnits: number;
   netMinorUnits: number;
+  /** Оплаты сессий с балансов клиентов. */
+  balanceMinorUnits: number;
+  /** Пополнения балансов (аванс, в итог не входит). */
+  topUpsMinorUnits: number;
 }
 
 export interface RevenueReportView {
@@ -504,4 +522,64 @@ export interface RevenueReportView {
   days: RevenueDayView[];
   totals: RevenueDayView;
   unpaidMinorUnits: number;
+}
+
+// ---- Клиенты и балансы ----
+
+export interface ClientView {
+  clientId: string;
+  /** Только цифры с кодом страны: 992901234567. */
+  phone: string;
+  displayName: string;
+  currency: string;
+  balanceMinorUnits: number;
+  isBlocked: boolean;
+  note: string | null;
+  createdAtUtc: string;
+}
+
+export type ClientLedgerKind = "TopUp" | "SessionPayment" | "SessionRefund" | "Adjustment";
+
+export interface ClientLedgerView {
+  entryId: string;
+  kind: ClientLedgerKind;
+  /** Со знаком: плюс — на баланс, минус — с баланса. */
+  amountMinorUnits: number;
+  balanceAfterMinorUnits: number;
+  locationId: string | null;
+  sessionId: string | null;
+  reason: string | null;
+  createdBy: string;
+  createdByName: string;
+  createdAtUtc: string;
+}
+
+export interface ClientDetailsView {
+  client: ClientView;
+  ledger: ClientLedgerView[];
+}
+
+export interface CreateClientRequest {
+  phone: string;
+  displayName: string;
+  note?: string | null;
+  locationId: string;
+}
+
+export interface UpdateClientRequest {
+  displayName?: string | null;
+  note?: string | null;
+  isBlocked?: boolean | null;
+}
+
+export interface ClientTopUpRequest {
+  locationId: string;
+  amountMinorUnits: number;
+  method: "Cash" | "Card";
+  idempotencyKey?: string | null;
+}
+
+export interface ClientAdjustmentRequest {
+  amountMinorUnits: number;
+  reason: string;
 }

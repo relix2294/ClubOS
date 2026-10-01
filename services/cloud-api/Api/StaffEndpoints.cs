@@ -278,6 +278,19 @@ public static class StaffEndpoints
 
         var zone = await db.Zones.SingleAsync(x => x.Id == device.ZoneId, ct);
         var location = await db.Locations.SingleAsync(x => x.Id == device.LocationId, ct);
+        if (body?.ClientId is { } clientId)
+        {
+            var client = await db.Clients.AsNoTracking().SingleOrDefaultAsync(x => x.Id == clientId && x.TenantId == staff.TenantId, ct);
+            if (client is null)
+            {
+                return Problems.NotFound("Клиент");
+            }
+
+            if (client.IsBlocked)
+            {
+                return Problems.Conflict("client_blocked", "Клиент заблокирован.");
+            }
+        }
         var now = time.GetUtcNow();
         var session = new Session
         {
@@ -294,7 +307,8 @@ public static class StaffEndpoints
             RuleVersion = zone.RuleVersion,
             StartedBy = staff.Actor,
             CorrelationId = Ids.New("cor"),
-            DurationMinutes = duration
+            DurationMinutes = duration,
+            ClientId = body?.ClientId
         };
         db.Sessions.Add(session);
         EdgeQueue.Enqueue(db, staff.TenantId, device.LocationId, new EdgeCommand
@@ -315,7 +329,7 @@ public static class StaffEndpoints
         });
         audit.Write(staff.TenantId, device.LocationId, staff.Actor, "session.start", $"device:{deviceId}",
             AuditResults.Requested, session.CorrelationId,
-            new { sessionId = session.Id, zone.PricePerHourMinorUnits, durationMinutes = duration });
+            new { sessionId = session.Id, zone.PricePerHourMinorUnits, durationMinutes = duration, clientId = body?.ClientId });
         await db.SaveChangesAsync(ct);
 
         return Results.Accepted($"/api/v1/devices/{deviceId}/sessions", session.ToView());

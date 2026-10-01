@@ -24,6 +24,8 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
     public DbSet<CashShift> CashShifts => Set<CashShift>();
     public DbSet<CashOperation> CashOperations => Set<CashOperation>();
     public DbSet<PendingDisklessDevice> PendingDisklessDevices => Set<PendingDisklessDevice>();
+    public DbSet<Client> Clients => Set<Client>();
+    public DbSet<ClientLedgerEntry> ClientLedger => Set<ClientLedgerEntry>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -143,6 +145,8 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.Property(x => x.State).HasConversion<string>();
             e.Property(x => x.Rounding).HasConversion<string>();
             e.Property(x => x.EndReason).HasMaxLength(32);
+            e.HasIndex(x => x.ClientId);
+            e.HasOne<Client>().WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<Device>().WithMany().HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Restrict);
         });
 
@@ -211,6 +215,32 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.Property(x => x.IdempotencyKey).HasMaxLength(64);
             e.HasOne<CashShift>().WithMany().HasForeignKey(x => x.ShiftId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<Session>().WithMany().HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => x.ClientId);
+            e.HasOne<Client>().WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<Client>(e =>
+        {
+            e.ToTable("clients");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.TenantId, x.Phone }).IsUnique();
+            e.HasIndex(x => new { x.TenantId, x.DisplayName });
+            e.Property(x => x.Phone).HasMaxLength(15);
+            e.Property(x => x.DisplayName).HasMaxLength(80);
+            e.Property(x => x.Currency).HasMaxLength(3);
+            e.Property(x => x.Note).HasMaxLength(500);
+            e.HasOne<Organization>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<ClientLedgerEntry>(e =>
+        {
+            e.ToTable("client_ledger");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ClientId, x.CreatedAtUtc });
+            e.HasIndex(x => new { x.TenantId, x.CreatedAtUtc });
+            e.Property(x => x.Kind).HasMaxLength(32);
+            e.Property(x => x.Reason).HasMaxLength(200);
+            e.HasOne<Client>().WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

@@ -39,10 +39,18 @@ public static class CashMath
         var cardRefunds = -Sum(CashOperationKinds.Refund, PaymentMethods.Card);
         var cashIn = Sum(CashOperationKinds.CashIn, PaymentMethods.Cash);
         var cashOut = -Sum(CashOperationKinds.CashOut, PaymentMethods.Cash);
+        var balancePayments = Sum(CashOperationKinds.SessionPayment, PaymentMethods.Balance);
+        var balanceRefunds = -Sum(CashOperationKinds.Refund, PaymentMethods.Balance);
         return new ShiftTotals(
             cashPayments, cardPayments, cashRefunds, cardRefunds, cashIn, cashOut,
+            // В кассе — все наличные операции, включая пополнения балансов; списания с баланса кассу не трогают.
             ExpectedCashMinorUnits: openingCash + operations.Where(o => o.Method == PaymentMethods.Cash).Sum(o => o.AmountMinorUnits),
-            RevenueMinorUnits: cashPayments + cardPayments - cashRefunds - cardRefunds,
-            PaymentCount: operations.Count(o => o.Kind == CashOperationKinds.SessionPayment));
+            // Выручка — оплаты сессий любым способом минус возвраты; пополнение баланса — аванс, не выручка.
+            RevenueMinorUnits: cashPayments + cardPayments + balancePayments - cashRefunds - cardRefunds - balanceRefunds,
+            PaymentCount: operations.Count(o => o.Kind == CashOperationKinds.SessionPayment),
+            BalancePaymentsMinorUnits: balancePayments,
+            BalanceRefundsMinorUnits: balanceRefunds,
+            TopUpCashMinorUnits: Sum(CashOperationKinds.BalanceTopUp, PaymentMethods.Cash),
+            TopUpCardMinorUnits: Sum(CashOperationKinds.BalanceTopUp, PaymentMethods.Card));
     }
 }

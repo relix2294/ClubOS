@@ -127,6 +127,65 @@ public class CashMathTests
         Assert.Equal(1_200, day.ChargedMinorUnits);
     }
 
+    [Fact]
+    public void Balance_payments_are_revenue_but_not_cash_and_top_ups_are_deposits()
+    {
+        var ops = new List<CashOperation>
+        {
+            Op(CashOperationKinds.BalanceTopUp, PaymentMethods.Cash, 2_000, session: null),
+            Op(CashOperationKinds.BalanceTopUp, PaymentMethods.Card, 1_000, session: null),
+            Op(CashOperationKinds.SessionPayment, PaymentMethods.Balance, 600),
+            Op(CashOperationKinds.Refund, PaymentMethods.Balance, -100),
+            Op(CashOperationKinds.SessionPayment, PaymentMethods.Cash, 300)
+        };
+        var totals = CashMath.Totals(openingCash: 1_000, ops);
+        Assert.Equal(600, totals.BalancePaymentsMinorUnits);
+        Assert.Equal(100, totals.BalanceRefundsMinorUnits);
+        Assert.Equal(2_000, totals.TopUpCashMinorUnits);
+        Assert.Equal(1_000, totals.TopUpCardMinorUnits);
+        // В кассе: начало + пополнение наличными + оплата наличными; списание с баланса кассу не трогает.
+        Assert.Equal(1_000 + 2_000 + 300, totals.ExpectedCashMinorUnits);
+        // Выручка: оплаты сессий (наличные + баланс) минус возврат на баланс; пополнения — не выручка.
+        Assert.Equal(300 + 600 - 100, totals.RevenueMinorUnits);
+        Assert.Equal(2, totals.PaymentCount);
+        Assert.Equal(800, CashMath.Paid(ops));
+    }
+
+    [Fact]
+    public void Revenue_day_counts_balance_payments_and_top_ups_separately()
+    {
+        var day = CashEndpoints.Day("2026-09-30", 1, 500, new[]
+        {
+            Op(CashOperationKinds.SessionPayment, PaymentMethods.Balance, 500),
+            Op(CashOperationKinds.Refund, PaymentMethods.Balance, -100),
+            Op(CashOperationKinds.BalanceTopUp, PaymentMethods.Cash, 1_500, session: null)
+        });
+        Assert.Equal(500, day.BalanceMinorUnits);
+        Assert.Equal(100, day.RefundsMinorUnits);
+        Assert.Equal(1_500, day.TopUpsMinorUnits);
+        Assert.Equal(0, day.CashMinorUnits);
+        Assert.Equal(400, day.NetMinorUnits);
+    }
+
+    [Theory]
+    [InlineData("+992 90 123 45 67", "992901234567")]
+    [InlineData("(992) 90-123-45-67", "992901234567")]
+    [InlineData("9012345", "9012345")]
+    [InlineData("123456", null)] // короче 7 цифр
+    [InlineData("1234567890123456", null)] // длиннее 15
+    [InlineData("+992 90 abc", null)]
+    [InlineData("  ", null)]
+    [InlineData(null, null)]
+    public void Phone_is_normalized_to_digits(string? input, string? expected) =>
+        Assert.Equal(expected, ClientEndpoints.NormalizePhone(input));
+
+    [Fact]
+    public void Phone_is_masked_in_audit_except_last_four_digits()
+    {
+        Assert.Equal("••••••••4567", ClientEndpoints.MaskPhone("992901234567"));
+        Assert.Equal("4567", ClientEndpoints.MaskPhone("4567"));
+    }
+
     /// <summary>
     /// Пояс через тот же поиск, что в Cloud. Windows CI без ICU (InvariantGlobalization) IANA-имён не знает —
     /// там берём Windows-идентификатор того же пояса; Cloud в проде работает в Linux-контейнере.

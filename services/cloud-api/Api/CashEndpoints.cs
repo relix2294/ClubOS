@@ -276,7 +276,7 @@ public static partial class CashEndpoints
         var staff = StaffContext.From(http.User);
         if (!PaymentMethods.IsValid(request.Method))
         {
-            return Problems.Validation("invalid_method", "Способ оплаты — Cash или Card.");
+            return Problems.Validation("invalid_method", "Способ оплаты — Cash, Card или Balance.");
         }
 
         if (ValidateAmount(request.AmountMinorUnits) is { } amountError)
@@ -329,11 +329,34 @@ public static partial class CashEndpoints
                 $"Сумма больше долга по сессии ({due / 100m:0.00} {session.Currency}). Сдачу считайте отдельно.");
         }
 
+        Client? client = null;
+        if (request.Method == PaymentMethods.Balance)
+        {
+            (client, var clientError) = await LockBalanceClientAsync(db, staff.TenantId, request.ClientId ?? session.ClientId,
+                session.Currency, ct);
+            if (clientError is not null)
+            {
+                return clientError;
+            }
+
+            if (client!.BalanceMinorUnits < request.AmountMinorUnits)
+            {
+                return Problems.Conflict("insufficient_balance",
+                    $"На балансе {client.BalanceMinorUnits / 100m:0.00} {client.Currency} — меньше суммы оплаты.");
+            }
+        }
+
         var operation = NewOperation(staff, shift, CashOperationKinds.SessionPayment, request.Method!, request.AmountMinorUnits, time,
             request.IdempotencyKey);
         operation.SessionId = session.Id;
         operation.DeviceId = session.DeviceId;
+        operation.ClientId = client?.Id;
         db.CashOperations.Add(operation);
+        if (client is not null)
+        {
+            AppendLedger(db, client, ClientLedgerKinds.SessionPayment, -request.AmountMinorUnits, staff, time, locationId,
+                session.Id, operation.Id, reason: null);
+        }
         audit.Write(staff.TenantId, locationId, staff.Actor, "cash.payment", $"device:{session.DeviceId}", AuditResults.Success,
             session.CorrelationId,
             new { operationId = operation.Id, sessionId, amount = request.AmountMinorUnits, request.Method, charge, dueBefore = due });
@@ -350,7 +373,7 @@ public static partial class CashEndpoints
         var staff = StaffContext.From(http.User);
         if (!PaymentMethods.IsValid(request.Method))
         {
-            return Problems.Validation("invalid_method", "Способ возврата — Cash или Card.");
+            return Problems.Validation("invalid_method", "Способ возврата — Cash, Card или Balance.");
         }
 
         if (ValidateAmount(request.AmountMinorUnits) is { } amountError)
@@ -409,12 +432,31 @@ public static partial class CashEndpoints
             return Problems.Conflict("insufficient_cash", "В кассе меньше наличных, чем нужно вернуть.");
         }
 
+        Client? client = null;
+        if (request.Method == PaymentMethods.Balance)
+        {
+            // Чей баланс: указанный, клиент сессии или тот, с чьего баланса платили.
+            var clientId = request.ClientId ?? session.ClientId ?? await db.CashOperations
+                .Where(x => x.SessionId == sessionId && x.ClientId != null).Select(x => x.ClientId).FirstOrDefaultAsync(ct);
+            (client, var clientError) = await LockBalanceClientAsync(db, staff.TenantId, clientId, session.Currency, ct);
+            if (clientError is not null)
+            {
+                return clientError;
+            }
+        }
+
         var operation = NewOperation(staff, shift, CashOperationKinds.Refund, request.Method!, -request.AmountMinorUnits, time,
             request.IdempotencyKey);
         operation.SessionId = session.Id;
         operation.DeviceId = session.DeviceId;
         operation.Reason = reason;
+        operation.ClientId = client?.Id;
         db.CashOperations.Add(operation);
+        if (client is not null)
+        {
+            AppendLedger(db, client, ClientLedgerKinds.SessionRefund, request.AmountMinorUnits, staff, time, locationId,
+                session.Id, operation.Id, reason);
+        }
         audit.Write(staff.TenantId, locationId, staff.Actor, "cash.refund", $"device:{session.DeviceId}", AuditResults.Success,
             session.CorrelationId,
             new { operationId = operation.Id, sessionId, amount = request.AmountMinorUnits, request.Method, reason, paidBefore = paid, overpaid });
@@ -455,7 +497,8 @@ public static partial class CashEndpoints
         var operations = await db.CashOperations.AsNoTracking()
             .Where(x => x.TenantId == staff.TenantId && x.LocationId == location.Id &&
                         x.CreatedAtUtc >= fromUtc && x.CreatedAtUtc < toUtc &&
-                        (x.Kind == CashOperationKinds.SessionPayment || x.Kind == CashOperationKinds.Refund))
+                        (x.Kind == CashOperationKinds.SessionPayment || x.Kind == CashOperationKinds.Refund ||
+                         x.Kind == CashOperationKinds.BalanceTopUp))
             .ToListAsync(ct);
         var sessions = await db.Sessions.AsNoTracking()
             .Where(x => x.TenantId == staff.TenantId && x.LocationId == location.Id && x.State == SessionState.Ended &&
@@ -480,7 +523,7 @@ public static partial class CashEndpoints
 
         var totals = new RevenueDayView("total", days.Sum(d => d.SessionsEnded), days.Sum(d => d.ChargedMinorUnits),
             days.Sum(d => d.CashMinorUnits), days.Sum(d => d.CardMinorUnits), days.Sum(d => d.RefundsMinorUnits),
-            days.Sum(d => d.NetMinorUnits));
+            days.Sum(d => d.NetMinorUnits), days.Sum(d => d.BalanceMinorUnits), days.Sum(d => d.TopUpsMinorUnits));
         var unpaid = sessions.Sum(s => Math.Max((s.TotalMinorUnits ?? 0) - paidBySession.GetValueOrDefault(s.Id), 0));
 
         return Results.Ok(new RevenueReportView(location.Id, location.Currency, location.Timezone,
@@ -493,8 +536,10 @@ public static partial class CashEndpoints
         var payments = operations.Where(o => o.Kind == CashOperationKinds.SessionPayment).ToList();
         var cash = payments.Where(o => o.Method == PaymentMethods.Cash).Sum(o => o.AmountMinorUnits);
         var card = payments.Where(o => o.Method == PaymentMethods.Card).Sum(o => o.AmountMinorUnits);
+        var balance = payments.Where(o => o.Method == PaymentMethods.Balance).Sum(o => o.AmountMinorUnits);
         var refunds = -operations.Where(o => o.Kind == CashOperationKinds.Refund).Sum(o => o.AmountMinorUnits);
-        return new RevenueDayView(date, sessionsEnded, charged, cash, card, refunds, cash + card - refunds);
+        var topUps = operations.Where(o => o.Kind == CashOperationKinds.BalanceTopUp).Sum(o => o.AmountMinorUnits);
+        return new RevenueDayView(date, sessionsEnded, charged, cash, card, refunds, cash + card + balance - refunds, balance, topUps);
     }
 
     /// <summary>
@@ -530,7 +575,7 @@ public static partial class CashEndpoints
 
     // ---------------- Вспомогательное ----------------
 
-    private static async Task<Location?> FindLocationAsync(ClubOsDbContext db, LocationScope scope, StaffContext staff,
+    internal static async Task<Location?> FindLocationAsync(ClubOsDbContext db, LocationScope scope, StaffContext staff,
         string locationId, CancellationToken ct)
     {
         var location = await db.Locations.AsNoTracking()
@@ -538,7 +583,7 @@ public static partial class CashEndpoints
         return location is not null && await scope.CanAccessAsync(location.Id, ct) ? location : null;
     }
 
-    private static async Task<CashShift?> LockOpenShiftAsync(ClubOsDbContext db, string tenantId, string locationId,
+    internal static async Task<CashShift?> LockOpenShiftAsync(ClubOsDbContext db, string tenantId, string locationId,
         CancellationToken ct) =>
         (await db.CashShifts
             .FromSql($"""
@@ -555,7 +600,7 @@ public static partial class CashEndpoints
         shift.OpeningCashMinorUnits + await db.CashOperations
             .Where(x => x.ShiftId == shift.Id && x.Method == PaymentMethods.Cash).SumAsync(x => x.AmountMinorUnits, ct);
 
-    private static CashOperation NewOperation(StaffContext staff, CashShift shift, string kind, string method, long amount,
+    internal static CashOperation NewOperation(StaffContext staff, CashShift shift, string kind, string method, long amount,
         TimeProvider time, string? idempotencyKey) => new()
         {
             Id = Ids.New("cop"),
@@ -571,19 +616,70 @@ public static partial class CashEndpoints
             IdempotencyKey = idempotencyKey
         };
 
-    private static IResult? ValidateAmount(long amount) => amount is < 1 or > CashMath.MaxAmountMinorUnits
+    /// <summary>Клиент для операции с балансом под блокировкой строки (после блокировок смены и сессии).</summary>
+    public static async Task<(Client? Client, IResult? Error)> LockBalanceClientAsync(ClubOsDbContext db, string tenantId,
+        string? clientId, string currency, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(clientId))
+        {
+            return (null, Problems.Validation("client_required", "Выберите клиента, с чьим балансом операция."));
+        }
+
+        var client = (await db.Clients
+            .FromSql($"""SELECT * FROM clients WHERE "Id" = {clientId} AND "TenantId" = {tenantId} FOR UPDATE""")
+            .ToListAsync(ct)).SingleOrDefault();
+        if (client is null)
+        {
+            return (null, Problems.NotFound("Клиент"));
+        }
+
+        if (client.IsBlocked)
+        {
+            return (null, Problems.Conflict("client_blocked", "Клиент заблокирован."));
+        }
+
+        return client.Currency != currency
+            ? (null, Problems.Conflict("currency_mismatch", $"Баланс клиента в {client.Currency}, а сумма — в {currency}."))
+            : (client, null);
+    }
+
+    /// <summary>Запись в журнал баланса и новый баланс клиента — в той же транзакции, что и операция.</summary>
+    public static ClientLedgerEntry AppendLedger(ClubOsDbContext db, Client client, string kind, long amount, StaffContext staff,
+        TimeProvider time, string? locationId, string? sessionId, string? cashOperationId, string? reason)
+    {
+        client.BalanceMinorUnits += amount;
+        var entry = new ClientLedgerEntry
+        {
+            Id = Ids.New("cle"),
+            TenantId = client.TenantId,
+            ClientId = client.Id,
+            Kind = kind,
+            AmountMinorUnits = amount,
+            BalanceAfterMinorUnits = client.BalanceMinorUnits,
+            LocationId = locationId,
+            SessionId = sessionId,
+            CashOperationId = cashOperationId,
+            Reason = reason,
+            CreatedBy = staff.Actor,
+            CreatedAtUtc = time.GetUtcNow()
+        };
+        db.ClientLedger.Add(entry);
+        return entry;
+    }
+
+    internal static IResult? ValidateAmount(long amount) => amount is < 1 or > CashMath.MaxAmountMinorUnits
         ? Problems.Validation("invalid_amount", "Сумма должна быть больше нуля и не больше 1 000 000.")
         : null;
 
-    private static IResult? ValidateKey(string? key) => key is null || IdempotencyKeyPattern().IsMatch(key)
+    internal static IResult? ValidateKey(string? key) => key is null || IdempotencyKeyPattern().IsMatch(key)
         ? null
         : Problems.Validation("invalid_idempotency_key", "idempotencyKey — 8–64 символа: латиница, цифры, «-», «_».");
 
-    private static IResult ShiftNotOpen() =>
+    internal static IResult ShiftNotOpen() =>
         Problems.Conflict("shift_not_open", "Смена в кассе не открыта. Откройте смену, чтобы принимать деньги.");
 
     /// <summary>Повтор запроса с тем же ключом возвращает уже созданную операцию; ключ от другой операции — 409.</summary>
-    private static async Task<IResult?> ReplayAsync(ClubOsDbContext db, string tenantId, string? key, string kind, string? sessionId,
+    internal static async Task<IResult?> ReplayAsync(ClubOsDbContext db, string tenantId, string? key, string kind, string? sessionId,
         CancellationToken ct)
     {
         if (key is null)
@@ -603,7 +699,7 @@ public static partial class CashEndpoints
             : Problems.Conflict("idempotency_key_reused", "Ключ идемпотентности уже использован для другой операции.");
     }
 
-    private static async Task<IResult> CommitAsync(ClubOsDbContext db, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction tx,
+    internal static async Task<IResult> CommitAsync(ClubOsDbContext db, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction tx,
         CashOperation operation, string tenantId, string? key, string kind, string? sessionId, CancellationToken ct)
     {
         try
@@ -642,6 +738,8 @@ public static partial class CashEndpoints
         var deviceIds = sessions.Select(x => x.DeviceId).Distinct().ToList();
         var names = await db.Devices.AsNoTracking().Where(x => deviceIds.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, x => x.DisplayName, ct);
+        var clientIds = sessions.Select(x => x.ClientId).OfType<string>().Distinct().ToList();
+        var clients = await db.Clients.AsNoTracking().Where(x => clientIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, ct);
 
         return sessions
             .Select(s => (Session: s, Charge: CashMath.Charge(s) ?? 0, Paid: paid.GetValueOrDefault(s.Id)))
@@ -649,7 +747,9 @@ public static partial class CashEndpoints
             .OrderByDescending(x => x.Session.EndedAtUtc ?? x.Session.StartedAtUtc)
             .Select(x => new PayableSessionView(x.Session.Id, x.Session.DeviceId, names.GetValueOrDefault(x.Session.DeviceId, x.Session.DeviceId),
                 x.Session.State, x.Session.StartedAtUtc, x.Session.EndedAtUtc, x.Session.PlannedEndAtUtc, x.Session.Currency,
-                x.Charge, x.Paid, x.Charge - x.Paid))
+                x.Charge, x.Paid, x.Charge - x.Paid, x.Session.ClientId,
+                x.Session.ClientId is { } cid && clients.TryGetValue(cid, out var c) ? c.DisplayName : null,
+                x.Session.ClientId is { } cid2 && clients.TryGetValue(cid2, out var c2) ? c2.BalanceMinorUnits : null))
             .ToList();
     }
 
@@ -687,8 +787,12 @@ public static partial class CashEndpoints
         var deviceIds = operations.Select(o => o.DeviceId).OfType<string>().Distinct().ToList();
         var devices = await db.Devices.AsNoTracking().Where(x => deviceIds.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, x => x.DisplayName, ct);
+        var clientIds = operations.Select(o => o.ClientId).OfType<string>().Distinct().ToList();
+        var clients = await db.Clients.AsNoTracking().Where(x => clientIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.DisplayName, ct);
         return operations.Select(o => new CashOperationView(o.Id, o.ShiftId, o.Kind, o.Method, o.AmountMinorUnits, o.Currency,
             o.SessionId, o.DeviceId, o.DeviceId is null ? null : devices.GetValueOrDefault(o.DeviceId), o.Reason, o.CreatedBy,
-            names.GetValueOrDefault(o.CreatedBy, o.CreatedBy), o.CreatedAtUtc)).ToList();
+            names.GetValueOrDefault(o.CreatedBy, o.CreatedBy), o.CreatedAtUtc, o.ClientId,
+            o.ClientId is null ? null : clients.GetValueOrDefault(o.ClientId))).ToList();
     }
 }

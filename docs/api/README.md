@@ -95,8 +95,8 @@ UPDATE/DELETE в `cash_operations` запрещены триггером БД. �
 | GET | `/api/v1/locations/{locationId}/cash` | `cash.operate`: открытая смена с итогами, сессии к расчёту (`dueMinorUnits` > 0 — долг, < 0 — переплата), операции смены |
 | POST | `/api/v1/locations/{locationId}/cash/shifts` | `cash.operate`: открыть смену `{openingCashMinorUnits}`. **409** `shift_already_open` — одна открытая смена на локацию (уникальный индекс) |
 | POST | `/api/v1/cash/shifts/{shiftId}/close` | `cash.operate`: закрыть `{countedCashMinorUnits, note?}` → фиксируются ожидаемые наличные и расхождение (`discrepancyMinorUnits`: минус — недостача) |
-| POST | `/api/v1/sessions/{sessionId}/payments` | `cash.operate`: `{amountMinorUnits, method: Cash/Card, idempotencyKey?}`, частичная оплата допустима. Начисление: завершённая — итог Edge; идущая с лимитом — до планового окончания (предоплата, продление добавляет долг); без лимита — только после завершения (**409** `session_not_payable`). **409** `shift_not_open`, `session_paid`; **400** `amount_exceeds_due` |
-| POST | `/api/v1/sessions/{sessionId}/refunds` | `cash.operate`: `{amountMinorUnits, method, reason, idempotencyKey?}`. Переплату возвращает любой кассир; больше переплаты — только с `cash.refund` (иначе **403**). Не больше оплаченного; наличными — не больше, чем в кассе |
+| POST | `/api/v1/sessions/{sessionId}/payments` | `cash.operate`: `{amountMinorUnits, method: Cash/Card/Balance, idempotencyKey?, clientId?}`, частичная оплата допустима. Начисление: завершённая — итог Edge; идущая с лимитом — до планового окончания (предоплата, продление добавляет долг); без лимита — только после завершения (**409** `session_not_payable`). **409** `shift_not_open`, `session_paid`; **400** `amount_exceeds_due`. `Balance` — списание с баланса клиента (`clientId` или клиент сессии; **400** `client_required`, **409** `insufficient_balance`, `client_blocked`, `currency_mismatch`); в кассу наличных не попадает |
+| POST | `/api/v1/sessions/{sessionId}/refunds` | `cash.operate`: `{amountMinorUnits, method, reason, idempotencyKey?}`. Переплату возвращает любой кассир; больше переплаты — только с `cash.refund` (иначе **403**). Не больше оплаченного; наличными — не больше, чем в кассе. `Balance` — на баланс клиента (`clientId`, иначе клиент сессии или того, кто платил с баланса) |
 | POST | `/api/v1/locations/{locationId}/cash/movements` | `cash.operate`: `{kind: CashIn/CashOut, amountMinorUnits, reason}` — внесение (размен) или изъятие (инкассация); изъятие не больше наличных в кассе |
 | GET | `/api/v1/locations/{locationId}/cash/shifts?limit=` | `reports.view`: история смен с итогами и расхождениями |
 | GET | `/api/v1/cash/shifts/{shiftId}` | `reports.view`: смена и все её операции |
@@ -105,6 +105,31 @@ UPDATE/DELETE в `cash_operations` запрещены триггером БД. �
 Права: `cash.operate` — Owner, Admin, Operator; `cash.refund` и `reports.view` — Owner, Admin. Аудит: `cash.shift_opened`,
 `cash.shift_closed`, `cash.payment` и `cash.refund` (target `device:<id>`), `cash.cash_in`, `cash.cash_out`.
 Live-поток: тема `cash` (только с `cash.operate`).
+
+Итоги смены (`totals`): `revenueMinorUnits` = оплаты сессий наличными, картой и с баланса минус возвраты;
+`expectedCashMinorUnits` включает пополнения балансов наличными; `topUpCashMinorUnits`/`topUpCardMinorUnits` —
+пополнения (аванс, не выручка), `balancePaymentsMinorUnits`/`balanceRefundsMinorUnits` — оплаты и возвраты балансом.
+В отчёте по дням: `balanceMinorUnits` (оплаты с баланса, входят в `netMinorUnits`) и `topUpsMinorUnits` (не входят).
+
+## Cloud API: клиенты и балансы (JWT Bearer, `cash.operate`)
+
+Клиенты общие для организации (сеть клубов), телефон уникален в организации и хранится цифрами (7–15).
+Баланс — аванс клиента в валюте локации, где он зарегистрирован; не уходит в минус и не больше 1 000 000.
+Журнал баланса `client_ledger` иммутабелен (триггер БД), каждая запись хранит остаток после неё.
+
+| Метод | Путь | Назначение |
+|-------|------|-----------|
+| GET | `/api/v1/clients?query=` | Поиск по цифрам телефона (от 3 цифр) или по имени (без учёта регистра), до 50 клиентов |
+| POST | `/api/v1/clients` | `{phone, displayName, note?, locationId}` → **201**. **409** `client_exists`, **400** `invalid_phone` |
+| GET | `/api/v1/clients/{clientId}` | `{client, ledger}` — последние 200 записей журнала |
+| POST | `/api/v1/clients/{clientId}` | `{displayName?, note?, isBlocked?}`; блокировка — `cash.refund`. Заблокированному нельзя начать сессию и тратить баланс |
+| POST | `/api/v1/clients/{clientId}/topups` | `{locationId, amountMinorUnits, method: Cash/Card, idempotencyKey?}` — пополнение в открытой смене локации (операция `BalanceTopUp`); **409** `shift_not_open` |
+| POST | `/api/v1/clients/{clientId}/adjustments` | `cash.refund`: `{amountMinorUnits ≠ 0, reason}` — бонус или исправление, в кассу не попадает; **409** `balance_out_of_range` |
+
+Сессия на клиента: `POST /api/v1/devices/{id}/sessions {durationMinutes?, clientId?}` (**409** `client_blocked`);
+`SessionView.clientId`, в кассе у строки к расчёту — `clientName` и `clientBalanceMinorUnits`.
+Аудит: `client.created` (телефон маскирован), `client.updated`, `client.blocked`, `client.unblocked`, `client.topup`,
+`client.adjustment`. Live: тема `cash`.
 
 ## Cloud API: Edge (`Authorization: ClubOS-Sig <JWS>`)
 

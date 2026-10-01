@@ -116,6 +116,9 @@ public sealed class LiveChangeInterceptor(LiveBroker broker) : ISaveChangesInter
             case PendingDisklessDevice p when changed:
                 yield return new LiveEvent(LiveTopics.Devices, p.TenantId, p.LocationId);
                 break;
+            case Client cl:
+                yield return new LiveEvent(LiveTopics.Cash, cl.TenantId, null, null, cl.Id);
+                break;
             case CashShift sh:
                 yield return new LiveEvent(LiveTopics.Cash, sh.TenantId, sh.LocationId, null, sh.Id);
                 break;
