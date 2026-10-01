@@ -167,6 +167,29 @@ public class CashMathTests
         Assert.Equal(400, day.NetMinorUnits);
     }
 
+    [Fact]
+    public void Bar_sales_are_revenue_and_cash_by_method_refunds_net_out()
+    {
+        var ops = new List<CashOperation>
+        {
+            Op(CashOperationKinds.ProductSale, PaymentMethods.Cash, 2_500, session: null),
+            Op(CashOperationKinds.ProductSale, PaymentMethods.Balance, 1_000, session: null),
+            Op(CashOperationKinds.ProductRefund, PaymentMethods.Cash, -2_500, session: null),
+            Op(CashOperationKinds.SessionPayment, PaymentMethods.Card, 600)
+        };
+        var totals = CashMath.Totals(openingCash: 0, ops);
+        Assert.Equal(3_500, totals.ProductSalesMinorUnits);
+        Assert.Equal(2_500, totals.ProductRefundsMinorUnits);
+        Assert.Equal(600 + 3_500 - 2_500, totals.RevenueMinorUnits);
+        Assert.Equal(0, totals.ExpectedCashMinorUnits); // наличный чек и его возврат
+        Assert.Equal(1, totals.PaymentCount); // считаются оплаты сессий
+        Assert.Equal(600, CashMath.Paid(ops)); // чеки бара не оплачивают сессии
+
+        var day = CashEndpoints.Day("2026-09-30", 0, 0, ops);
+        Assert.Equal(1_000, day.ProductsMinorUnits);
+        Assert.Equal(600 + 1_000, day.NetMinorUnits);
+    }
+
     [Theory]
     [InlineData("+992 90 123 45 67", "992901234567")]
     [InlineData("(992) 90-123-45-67", "992901234567")]

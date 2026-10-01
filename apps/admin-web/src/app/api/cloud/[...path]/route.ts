@@ -37,6 +37,9 @@ const ALLOWED = [
   /^diskless-candidates\/[\w-]+\/(approve|dismiss)$/,
   /^locations\/[\w-]+\/bookings$/,
   /^bookings\/[\w-]+\/(start|cancel)$/,
+  /^locations\/[\w-]+\/(products|sales)$/,
+  /^products\/[\w-]+(\/(stock|movements))?$/,
+  /^sales\/[\w-]+\/refund$/,
   /^clients$/,
   /^clients\/[\w-]+(\/(topups|adjustments))?$/,
 ];

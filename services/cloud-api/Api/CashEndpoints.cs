@@ -498,7 +498,8 @@ public static partial class CashEndpoints
             .Where(x => x.TenantId == staff.TenantId && x.LocationId == location.Id &&
                         x.CreatedAtUtc >= fromUtc && x.CreatedAtUtc < toUtc &&
                         (x.Kind == CashOperationKinds.SessionPayment || x.Kind == CashOperationKinds.Refund ||
-                         x.Kind == CashOperationKinds.BalanceTopUp))
+                         x.Kind == CashOperationKinds.BalanceTopUp || x.Kind == CashOperationKinds.ProductSale ||
+                         x.Kind == CashOperationKinds.ProductRefund))
             .ToListAsync(ct);
         var sessions = await db.Sessions.AsNoTracking()
             .Where(x => x.TenantId == staff.TenantId && x.LocationId == location.Id && x.State == SessionState.Ended &&
@@ -523,7 +524,8 @@ public static partial class CashEndpoints
 
         var totals = new RevenueDayView("total", days.Sum(d => d.SessionsEnded), days.Sum(d => d.ChargedMinorUnits),
             days.Sum(d => d.CashMinorUnits), days.Sum(d => d.CardMinorUnits), days.Sum(d => d.RefundsMinorUnits),
-            days.Sum(d => d.NetMinorUnits), days.Sum(d => d.BalanceMinorUnits), days.Sum(d => d.TopUpsMinorUnits));
+            days.Sum(d => d.NetMinorUnits), days.Sum(d => d.BalanceMinorUnits), days.Sum(d => d.TopUpsMinorUnits),
+            days.Sum(d => d.ProductsMinorUnits));
         var unpaid = sessions.Sum(s => Math.Max((s.TotalMinorUnits ?? 0) - paidBySession.GetValueOrDefault(s.Id), 0));
 
         return Results.Ok(new RevenueReportView(location.Id, location.Currency, location.Timezone,
@@ -539,7 +541,11 @@ public static partial class CashEndpoints
         var balance = payments.Where(o => o.Method == PaymentMethods.Balance).Sum(o => o.AmountMinorUnits);
         var refunds = -operations.Where(o => o.Kind == CashOperationKinds.Refund).Sum(o => o.AmountMinorUnits);
         var topUps = operations.Where(o => o.Kind == CashOperationKinds.BalanceTopUp).Sum(o => o.AmountMinorUnits);
-        return new RevenueDayView(date, sessionsEnded, charged, cash, card, refunds, cash + card + balance - refunds, balance, topUps);
+        // Бар: чеки минус возвраты чеков, любым способом оплаты.
+        var products = operations.Where(o => o.Kind is CashOperationKinds.ProductSale or CashOperationKinds.ProductRefund)
+            .Sum(o => o.AmountMinorUnits);
+        return new RevenueDayView(date, sessionsEnded, charged, cash, card, refunds, cash + card + balance - refunds + products, balance,
+            topUps, products);
     }
 
     /// <summary>
@@ -596,7 +602,7 @@ public static partial class CashEndpoints
     private static async Task<Session> LockSessionAsync(ClubOsDbContext db, string sessionId, CancellationToken ct) =>
         (await db.Sessions.FromSql($"""SELECT * FROM sessions WHERE "Id" = {sessionId} FOR UPDATE""").ToListAsync(ct)).Single();
 
-    private static async Task<long> CashOnHandAsync(ClubOsDbContext db, CashShift shift, CancellationToken ct) =>
+    internal static async Task<long> CashOnHandAsync(ClubOsDbContext db, CashShift shift, CancellationToken ct) =>
         shift.OpeningCashMinorUnits + await db.CashOperations
             .Where(x => x.ShiftId == shift.Id && x.Method == PaymentMethods.Cash).SumAsync(x => x.AmountMinorUnits, ct);
 
@@ -719,7 +725,7 @@ public static partial class CashEndpoints
         return Results.Created($"/api/v1/cash/shifts/{operation.ShiftId}", (await OperationViewsAsync(db, [operation], ct))[0]);
     }
 
-    private static bool IsUniqueViolation(DbUpdateException ex) =>
+    internal static bool IsUniqueViolation(DbUpdateException ex) =>
         ex.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.UniqueViolation };
 
     /// <summary>Сессии локации с незакрытым расчётом: долг или переплата. Свежие сверху.</summary>
@@ -780,7 +786,7 @@ public static partial class CashEndpoints
             shift.CloseNote, totals);
     }
 
-    private static async Task<List<CashOperationView>> OperationViewsAsync(ClubOsDbContext db, IReadOnlyList<CashOperation> operations,
+    internal static async Task<List<CashOperationView>> OperationViewsAsync(ClubOsDbContext db, IReadOnlyList<CashOperation> operations,
         CancellationToken ct)
     {
         var names = await NamesAsync(db, operations.Select(o => o.CreatedBy), ct);
@@ -793,6 +799,6 @@ public static partial class CashEndpoints
         return operations.Select(o => new CashOperationView(o.Id, o.ShiftId, o.Kind, o.Method, o.AmountMinorUnits, o.Currency,
             o.SessionId, o.DeviceId, o.DeviceId is null ? null : devices.GetValueOrDefault(o.DeviceId), o.Reason, o.CreatedBy,
             names.GetValueOrDefault(o.CreatedBy, o.CreatedBy), o.CreatedAtUtc, o.ClientId,
-            o.ClientId is null ? null : clients.GetValueOrDefault(o.ClientId))).ToList();
+            o.ClientId is null ? null : clients.GetValueOrDefault(o.ClientId), o.SaleId)).ToList();
     }
 }

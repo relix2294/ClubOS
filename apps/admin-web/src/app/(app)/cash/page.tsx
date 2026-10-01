@@ -164,6 +164,7 @@ function ShiftCard({ shift, timeZone }: { shift: CashShiftView; timeZone: string
         <Stat label={t.cash.cashOut} value={m(s.cashOutMinorUnits)} />
         <Stat label={t.cash.balancePayments} value={m(s.balancePaymentsMinorUnits - s.balanceRefundsMinorUnits)} testId="balance-payments" />
         <Stat label={t.cash.topUps} value={m(s.topUpCashMinorUnits + s.topUpCardMinorUnits)} testId="topups" />
+        <Stat label={t.cash.barSales} value={m(s.productSalesMinorUnits - s.productRefundsMinorUnits)} testId="bar-sales" />
         <Stat label={t.cash.expected} value={m(s.expectedCashMinorUnits)} strong testId="expected-cash" />
         <Stat label={t.cash.revenue} value={m(s.revenueMinorUnits)} strong testId="shift-revenue" />
       </div>

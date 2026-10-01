@@ -70,6 +70,9 @@ export default function ReportsPage() {
       <td className="py-2 pr-4 text-right tabular-nums" data-testid={total ? "revenue-balance" : undefined}>
         {d.balanceMinorUnits ? m(d.balanceMinorUnits) : "—"}
       </td>
+      <td className="py-2 pr-4 text-right tabular-nums" data-testid={total ? "revenue-products" : undefined}>
+        {d.productsMinorUnits ? m(d.productsMinorUnits) : "—"}
+      </td>
       <td className="py-2 pr-4 text-right tabular-nums text-red-700">{d.refundsMinorUnits ? m(-d.refundsMinorUnits) : "—"}</td>
       <td className="py-2 pr-4 text-right tabular-nums" data-testid={total ? "revenue-net" : undefined}>
         {m(d.netMinorUnits)}
@@ -114,6 +117,7 @@ export default function ReportsPage() {
                   <th className="py-2 pr-4 text-right">{t.reports.cash}</th>
                   <th className="py-2 pr-4 text-right">{t.reports.card}</th>
                   <th className="py-2 pr-4 text-right">{t.reports.balance}</th>
+                  <th className="py-2 pr-4 text-right">{t.reports.products}</th>
                   <th className="py-2 pr-4 text-right">{t.reports.refunds}</th>
                   <th className="py-2 pr-4 text-right">{t.reports.net}</th>
                   <th className="py-2 text-right">{t.reports.topUps}</th>

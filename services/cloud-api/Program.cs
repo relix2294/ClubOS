@@ -181,6 +181,7 @@ app.MapCashEndpoints();
 app.MapDisklessEndpoints();
 app.MapClientEndpoints();
 app.MapBookingEndpoints();
+app.MapPosEndpoints();
 
 await app.RunAsync();
 return 0;

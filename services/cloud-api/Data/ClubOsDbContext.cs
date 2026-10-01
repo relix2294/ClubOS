@@ -10,6 +10,10 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
     public DbSet<Zone> Zones => Set<Zone>();
     public DbSet<TariffPackage> TariffPackages => Set<TariffPackage>();
     public DbSet<Booking> Bookings => Set<Booking>();
+    public DbSet<Product> Products => Set<Product>();
+    public DbSet<StockMovement> StockMovements => Set<StockMovement>();
+    public DbSet<Sale> Sales => Set<Sale>();
+    public DbSet<SaleItem> SaleItems => Set<SaleItem>();
     public DbSet<User> Users => Set<User>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<MfaRecoveryCode> MfaRecoveryCodes => Set<MfaRecoveryCode>();
@@ -53,6 +57,50 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.Property(x => x.Rounding).HasConversion<string>();
             e.Property(x => x.PeriodsJson).HasColumnType("jsonb");
             e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<Product>(e =>
+        {
+            e.ToTable("products");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(60);
+            e.Property(x => x.Category).HasMaxLength(40);
+            e.HasIndex(x => new { x.LocationId, x.Name }).IsUnique();
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Organization>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<StockMovement>(e =>
+        {
+            e.ToTable("stock_movements");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Kind).HasMaxLength(16);
+            e.HasIndex(x => new { x.ProductId, x.CreatedAtUtc });
+            e.HasIndex(x => new { x.LocationId, x.CreatedAtUtc });
+            e.HasOne<Product>().WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<Sale>(e =>
+        {
+            e.ToTable("sales");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Status).HasMaxLength(16);
+            e.HasIndex(x => new { x.ShiftId, x.CreatedAtUtc });
+            e.HasIndex(x => new { x.LocationId, x.CreatedAtUtc });
+            e.HasIndex(x => x.CashOperationId).IsUnique();
+            e.HasOne<CashShift>().WithMany().HasForeignKey(x => x.ShiftId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Client>().WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<SaleItem>(e =>
+        {
+            e.ToTable("sale_items");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(60);
+            e.HasIndex(x => x.SaleId);
+            e.HasIndex(x => x.ProductId);
+            e.HasOne<Sale>().WithMany().HasForeignKey(x => x.SaleId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Product>().WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<Booking>(e =>

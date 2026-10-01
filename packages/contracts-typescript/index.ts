@@ -516,7 +516,7 @@ export interface RecoveryCodesResponse {
 /** Balance — списание с баланса клиента (аванс); в кассу наличных не попадает. */
 export type PaymentMethod = "Cash" | "Card" | "Balance";
 
-export type CashOperationKind = "SessionPayment" | "Refund" | "CashIn" | "CashOut" | "BalanceTopUp";
+export type CashOperationKind = "SessionPayment" | "Refund" | "CashIn" | "CashOut" | "BalanceTopUp" | "ProductSale" | "ProductRefund";
 
 export interface ShiftTotals {
   cashPaymentsMinorUnits: number;
@@ -535,6 +535,9 @@ export interface ShiftTotals {
   /** Пополнения балансов клиентов наличными / картой (в кассе, но аванс). */
   topUpCashMinorUnits: number;
   topUpCardMinorUnits: number;
+  /** Чеки бара и их возвраты (любым способом оплаты). */
+  productSalesMinorUnits: number;
+  productRefundsMinorUnits: number;
 }
 
 export interface CashShiftView {
@@ -572,6 +575,7 @@ export interface CashOperationView {
   createdAtUtc: string;
   clientId: string | null;
   clientName: string | null;
+  saleId: string | null;
 }
 
 /** Сессия с незакрытым расчётом: due > 0 — долг клиента, due < 0 — переплата к возврату. */
@@ -613,6 +617,8 @@ export interface RevenueDayView {
   balanceMinorUnits: number;
   /** Пополнения балансов (аванс, в итог не входит). */
   topUpsMinorUnits: number;
+  /** Бар: чеки минус возвраты чеков (входит в итог). */
+  productsMinorUnits: number;
 }
 
 export interface RevenueReportView {
@@ -640,7 +646,7 @@ export interface ClientView {
   createdAtUtc: string;
 }
 
-export type ClientLedgerKind = "TopUp" | "SessionPayment" | "SessionRefund" | "Adjustment";
+export type ClientLedgerKind = "TopUp" | "SessionPayment" | "SessionRefund" | "Adjustment" | "ProductPayment" | "ProductRefund";
 
 export interface ClientLedgerView {
   entryId: string;
@@ -728,3 +734,63 @@ export interface CreateBookingRequest {
 
 /** За сколько минут до начала бронь держит ПК и сколько ждём опоздавшего (как в Cloud). */
 export const BookingRules = { holdMinutes: 15, graceMinutes: 15 } as const;
+
+// ---- Бар / POS (D-021) ----
+
+export interface ProductView {
+  productId: string;
+  locationId: string;
+  name: string;
+  category: string | null;
+  priceMinorUnits: number;
+  /** Вести остаток (услуги вроде «Чай» — без учёта). */
+  trackStock: boolean;
+  stockQuantity: number;
+  isActive: boolean;
+}
+
+export interface ProductInput {
+  name: string;
+  category?: string | null;
+  priceMinorUnits: number;
+  trackStock?: boolean;
+  isActive?: boolean;
+}
+
+export type StockKind = "Receipt" | "WriteOff" | "Count";
+
+export interface StockMovementView {
+  movementId: string;
+  kind: "Receipt" | "Sale" | "Return" | "WriteOff" | "Count";
+  quantity: number;
+  quantityAfter: number;
+  reason: string | null;
+  saleId: string | null;
+  createdByName: string;
+  createdAtUtc: string;
+}
+
+export interface SaleItemView {
+  productId: string;
+  name: string;
+  priceMinorUnits: number;
+  quantity: number;
+  totalMinorUnits: number;
+}
+
+export interface SaleView {
+  saleId: string;
+  locationId: string;
+  shiftId: string;
+  method: PaymentMethod;
+  clientId: string | null;
+  clientName: string | null;
+  totalMinorUnits: number;
+  currency: string;
+  status: "Paid" | "Refunded";
+  items: SaleItemView[];
+  createdByName: string;
+  createdAtUtc: string;
+  refundReason: string | null;
+  refundedAtUtc: string | null;
+}

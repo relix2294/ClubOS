@@ -415,6 +415,12 @@ public static class CashOperationKinds
 
     /// <summary>Пополнение баланса клиента наличными или картой: деньги в кассе, но это аванс, а не выручка.</summary>
     public const string BalanceTopUp = "BalanceTopUp";
+
+    /// <summary>Продажа товаров бара (сумма чека, положительная) — выручка.</summary>
+    public const string ProductSale = "ProductSale";
+
+    /// <summary>Возврат чека бара (отрицательная) — отдельная операция.</summary>
+    public const string ProductRefund = "ProductRefund";
 }
 
 /// <summary>
@@ -467,6 +473,9 @@ public sealed class CashOperation
     /// <summary>Клиент: пополнение баланса или оплата/возврат через баланс.</summary>
     public string? ClientId { get; set; }
 
+    /// <summary>Чек бара (продажа или её возврат).</summary>
+    public string? SaleId { get; set; }
+
     public required string CreatedBy { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; }
 
@@ -497,6 +506,12 @@ public sealed class Client
 
 public static class ClientLedgerKinds
 {
+    /// <summary>Оплата чека бара с баланса.</summary>
+    public const string ProductPayment = "ProductPayment";
+
+    /// <summary>Возврат чека бара на баланс.</summary>
+    public const string ProductRefund = "ProductRefund";
+
     /// <summary>Пополнение через кассу (наличные/карта).</summary>
     public const string TopUp = "TopUp";
 
@@ -567,4 +582,90 @@ public sealed class Booking
     public string? ClosedBy { get; set; }
     public DateTimeOffset? ClosedAtUtc { get; set; }
     public string? CancelReason { get; set; }
+}
+
+/// <summary>Товар бара локации (ТЗ: товары / POS). Цена — на момент продажи копируется в позицию чека.</summary>
+public sealed class Product
+{
+    public required string Id { get; set; }
+    public required string TenantId { get; set; }
+    public required string LocationId { get; set; }
+    public required string Name { get; set; }
+    public string? Category { get; set; }
+    public long PriceMinorUnits { get; set; }
+
+    /// <summary>Вести остаток: продажа уменьшает его и не проходит при нехватке. Услуги (например, «Чай») — без учёта.</summary>
+    public bool TrackStock { get; set; } = true;
+
+    /// <summary>Остаток (штук) — сумма движений <see cref="StockMovement"/>, обновляется под блокировкой строки.</summary>
+    public int StockQuantity { get; set; }
+    public bool IsActive { get; set; } = true;
+    public DateTimeOffset CreatedAtUtc { get; set; }
+}
+
+public static class StockMovementKinds
+{
+    public const string Receipt = "Receipt";
+    public const string Sale = "Sale";
+    public const string Return = "Return";
+    public const string WriteOff = "WriteOff";
+
+    /// <summary>Инвентаризация: разница между пересчитанным и учётным остатком.</summary>
+    public const string Count = "Count";
+}
+
+/// <summary>Движение склада (append-only, триггер БД). Количество со знаком, остаток после движения.</summary>
+public sealed class StockMovement
+{
+    public required string Id { get; set; }
+    public required string TenantId { get; set; }
+    public required string LocationId { get; set; }
+    public required string ProductId { get; set; }
+    public required string Kind { get; set; }
+    public int Quantity { get; set; }
+    public int QuantityAfter { get; set; }
+    public string? Reason { get; set; }
+    public string? SaleId { get; set; }
+    public required string CreatedBy { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+}
+
+public static class SaleStatuses
+{
+    public const string Paid = "Paid";
+    public const string Refunded = "Refunded";
+}
+
+/// <summary>Чек бара: позиции, способ оплаты, кассовая операция в смене. Возврат — только целиком (D-021).</summary>
+public sealed class Sale
+{
+    public required string Id { get; set; }
+    public required string TenantId { get; set; }
+    public required string LocationId { get; set; }
+    public required string ShiftId { get; set; }
+    public required string CashOperationId { get; set; }
+    public required string Method { get; set; }
+    public string? ClientId { get; set; }
+    public long TotalMinorUnits { get; set; }
+    public required string Currency { get; set; }
+    public string Status { get; set; } = SaleStatuses.Paid;
+    public required string CreatedBy { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public string? RefundOperationId { get; set; }
+    public string? RefundedBy { get; set; }
+    public DateTimeOffset? RefundedAtUtc { get; set; }
+    public string? RefundReason { get; set; }
+}
+
+public sealed class SaleItem
+{
+    public required string Id { get; set; }
+    public required string SaleId { get; set; }
+    public required string ProductId { get; set; }
+
+    /// <summary>Название и цена на момент продажи.</summary>
+    public required string Name { get; set; }
+    public long PriceMinorUnits { get; set; }
+    public int Quantity { get; set; }
+    public long TotalMinorUnits { get; set; }
 }

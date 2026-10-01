@@ -31,6 +31,7 @@ const LOCATION_KEY = "clubos.locationId";
 const allNav: { href: string; label: string; permission?: Permission }[] = [
   { href: "/", label: t.nav.dashboard, permission: "devices.view" },
   { href: "/cash", label: t.nav.cash, permission: "cash.operate" },
+  { href: "/bar", label: t.nav.bar, permission: "cash.operate" },
   { href: "/clients", label: t.nav.clients, permission: "cash.operate" },
   { href: "/bookings", label: t.nav.bookings, permission: "sessions.manage" },
   { href: "/reports", label: t.nav.reports, permission: "reports.view" },

@@ -101,6 +101,12 @@ public sealed class LiveChangeInterceptor(LiveBroker broker) : ISaveChangesInter
             case DeviceCommand c:
                 yield return new LiveEvent(LiveTopics.Commands, c.TenantId, c.LocationId, c.DeviceId, c.Id);
                 break;
+            case Product p:
+                yield return new LiveEvent(LiveTopics.Cash, p.TenantId, p.LocationId, null, p.Id);
+                break;
+            case Sale sale:
+                yield return new LiveEvent(LiveTopics.Cash, sale.TenantId, sale.LocationId, null, sale.Id);
+                break;
             case Booking b:
                 yield return new LiveEvent(LiveTopics.Sessions, b.TenantId, b.LocationId, b.DeviceId, b.Id);
                 yield return new LiveEvent(LiveTopics.Devices, b.TenantId, b.LocationId, b.DeviceId);

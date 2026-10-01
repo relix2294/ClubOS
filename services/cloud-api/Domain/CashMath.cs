@@ -41,16 +41,21 @@ public static class CashMath
         var cashOut = -Sum(CashOperationKinds.CashOut, PaymentMethods.Cash);
         var balancePayments = Sum(CashOperationKinds.SessionPayment, PaymentMethods.Balance);
         var balanceRefunds = -Sum(CashOperationKinds.Refund, PaymentMethods.Balance);
+        var productSales = operations.Where(o => o.Kind == CashOperationKinds.ProductSale).Sum(o => o.AmountMinorUnits);
+        var productRefunds = -operations.Where(o => o.Kind == CashOperationKinds.ProductRefund).Sum(o => o.AmountMinorUnits);
         return new ShiftTotals(
             cashPayments, cardPayments, cashRefunds, cardRefunds, cashIn, cashOut,
             // В кассе — все наличные операции, включая пополнения балансов; списания с баланса кассу не трогают.
             ExpectedCashMinorUnits: openingCash + operations.Where(o => o.Method == PaymentMethods.Cash).Sum(o => o.AmountMinorUnits),
-            // Выручка — оплаты сессий любым способом минус возвраты; пополнение баланса — аванс, не выручка.
-            RevenueMinorUnits: cashPayments + cardPayments + balancePayments - cashRefunds - cardRefunds - balanceRefunds,
+            // Выручка — оплаты сессий и чеки бара любым способом минус возвраты; пополнение баланса — аванс, не выручка.
+            RevenueMinorUnits: cashPayments + cardPayments + balancePayments - cashRefunds - cardRefunds - balanceRefunds +
+                               productSales - productRefunds,
             PaymentCount: operations.Count(o => o.Kind == CashOperationKinds.SessionPayment),
             BalancePaymentsMinorUnits: balancePayments,
             BalanceRefundsMinorUnits: balanceRefunds,
             TopUpCashMinorUnits: Sum(CashOperationKinds.BalanceTopUp, PaymentMethods.Cash),
-            TopUpCardMinorUnits: Sum(CashOperationKinds.BalanceTopUp, PaymentMethods.Card));
+            TopUpCardMinorUnits: Sum(CashOperationKinds.BalanceTopUp, PaymentMethods.Card),
+            ProductSalesMinorUnits: productSales,
+            ProductRefundsMinorUnits: productRefunds);
     }
 }

@@ -134,6 +134,28 @@ Live-поток: тема `cash` (только с `cash.operate`).
 Аудит: `client.created` (телефон маскирован), `client.updated`, `client.blocked`, `client.unblocked`, `client.topup`,
 `client.adjustment`. Live: тема `cash`.
 
+## Cloud API: бар / POS (JWT Bearer)
+
+Товары — по локации (D-021). Продажа — `cash.operate` в открытой смене; каталог, склад и возврат чека —
+`cash.refund`. Чек — одна кассовая операция `ProductSale` (возврат — `ProductRefund`) с позициями по цене на
+момент продажи. Блокировки: смена → товары (по Id) → клиент; остаток не уходит в минус. Журнал склада и
+позиции чеков иммутабельны (триггеры БД).
+
+| Метод | Путь | Назначение |
+|-------|------|-----------|
+| GET | `/api/v1/locations/{id}/products?all=` | Витрина (активные); `all=true` — с отключёнными (только `cash.refund`) |
+| POST | `/api/v1/locations/{id}/products` | `cash.refund`: `{name, category?, priceMinorUnits, trackStock?, isActive?}`. **409** `duplicate_product` |
+| POST | `/api/v1/products/{id}` | `cash.refund`: изменить / снять с продажи (`isActive: false`) |
+| POST | `/api/v1/products/{id}/stock` | `cash.refund`: `{kind: Receipt/WriteOff/Count, quantity, reason}` — приход, списание, инвентаризация (quantity — пересчитанный остаток). Основание обязательно, кроме прихода. **409** `insufficient_stock`, `stock_not_tracked` |
+| GET | `/api/v1/products/{id}/movements` | `cash.refund`: последние 200 движений склада |
+| POST | `/api/v1/locations/{id}/sales` | `{items: [{productId, quantity}], method: Cash/Card/Balance, clientId?, idempotencyKey?}` → **201** чек. **409** `shift_not_open`, `insufficient_stock`, `product_unavailable`, `insufficient_balance`; **400** `client_required` |
+| GET | `/api/v1/locations/{id}/sales?shiftId=` | Чеки смены (по умолчанию — открытой) |
+| POST | `/api/v1/sales/{id}/refund` | `cash.refund`: `{reason, idempotencyKey?}` — возврат целиком в открытой смене тем же способом, товары на склад, баланс клиенту. **409** `sale_refunded`, `insufficient_cash` |
+
+Итоги смены: `productSalesMinorUnits`, `productRefundsMinorUnits` (входят в выручку; наличные — в «наличных по
+учёту»); отчёт по дням: `productsMinorUnits` (входит в `netMinorUnits`). Аудит: `product.created`, `product.updated`,
+`stock.receipt`, `stock.writeoff`, `stock.count`, `pos.sale`, `pos.refund`.
+
 ## Cloud API: бронирования (JWT Bearer, `sessions.manage`)
 
 Брони ПК (D-020). Пока бронь ждёт гостя (`Booked`), интервалы одного ПК не пересекаются — ограничение БД

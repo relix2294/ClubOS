@@ -15,7 +15,9 @@ public sealed record ShiftTotals(
     long BalancePaymentsMinorUnits = 0,
     long BalanceRefundsMinorUnits = 0,
     long TopUpCashMinorUnits = 0,
-    long TopUpCardMinorUnits = 0);
+    long TopUpCardMinorUnits = 0,
+    long ProductSalesMinorUnits = 0,
+    long ProductRefundsMinorUnits = 0);
 
 public sealed record CashShiftView(
     string ShiftId,
@@ -48,7 +50,8 @@ public sealed record CashOperationView(
     string CreatedByName,
     DateTimeOffset CreatedAtUtc,
     string? ClientId = null,
-    string? ClientName = null);
+    string? ClientName = null,
+    string? SaleId = null);
 
 /// <summary>Сессия, по которой есть расчёт с клиентом: долг (Due &gt; 0) или переплата (Due &lt; 0).</summary>
 public sealed record PayableSessionView(
@@ -95,7 +98,8 @@ public sealed record RevenueDayView(
     long RefundsMinorUnits,
     long NetMinorUnits,
     long BalanceMinorUnits = 0,
-    long TopUpsMinorUnits = 0);
+    long TopUpsMinorUnits = 0,
+    long ProductsMinorUnits = 0);
 
 public sealed record RevenueReportView(
     string LocationId,

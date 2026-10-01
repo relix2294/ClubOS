@@ -322,3 +322,65 @@ test("бронирование: бронь на завтра → шкала → 
   await page.getByRole("button", { name: "Завершить сессию" }).click();
   await expect(page.getByTestId("session-history").locator("li").first().locator('[data-state="Ended"]')).toBeVisible({ timeout: 20_000 });
 });
+
+test("бар: товар и приход → чек наличными → итоги смены → возврат чека", async ({ page }) => {
+  test.skip(!password, "Задайте E2E_PASSWORD");
+  await login(page);
+
+  // Смена нужна для продажи.
+  await page.getByRole("link", { name: "Касса" }).first().click();
+  const openForm = page.getByRole("form", { name: "Открыть смену" });
+  await expect(page.getByTestId("shift-open").or(openForm)).toBeVisible();
+  if (await openForm.isVisible()) {
+    await openForm.getByLabel(/Наличные в кассе на начало смены/).fill("0");
+    await openForm.getByRole("button", { name: "Открыть смену" }).click();
+    await expect(page.getByTestId("shift-open")).toBeVisible();
+  }
+  const barBefore = minor(await page.getByTestId("bar-sales").innerText());
+
+  // Товар и приход.
+  await page.getByRole("link", { name: "Бар" }).first().click();
+  await page.getByRole("tab", { name: "Товары и склад" }).click();
+  const name = `E2E Кола ${String(Date.now()).slice(-5)}`;
+  const create = page.getByRole("form", { name: "Новый товар" });
+  await create.getByLabel("Название").fill(name);
+  await create.getByLabel("Категория").fill("E2E");
+  await create.getByLabel(/^Цена/).fill("12,50");
+  await create.getByRole("button", { name: "Добавить товар" }).click();
+  const row = page.getByTestId("catalog-row").filter({ hasText: name });
+  await expect(row).toBeVisible();
+  const stock = row.getByRole("form", { name: `Склад: ${name}` });
+  await stock.getByLabel("Количество").fill("5");
+  await stock.getByRole("button", { name: "Провести" }).click();
+  await expect(row.getByTestId("catalog-stock")).toHaveText("Остаток: 5");
+
+  // Чек: 2 шт. наличными.
+  await page.getByRole("tab", { name: "Продажа" }).click();
+  const tile = page.getByTestId("bar-product").filter({ hasText: name });
+  await tile.click();
+  await tile.click();
+  await expect(page.getByTestId("cart-total")).toHaveText(/25,00/);
+  await page.getByTestId("bar-cart").getByRole("button", { name: "Наличные" }).click();
+  await expect(page.getByTestId("sale-done")).toContainText("25,00");
+  await expect(tile).toContainText("Остаток: 3");
+  const sale = page.getByTestId("sale-row").filter({ hasText: name }).first();
+  await expect(sale).toHaveAttribute("data-status", "Paid");
+
+  // Касса: бар в итогах смены.
+  await page.getByRole("link", { name: "Касса" }).first().click();
+  await expect.poll(async () => minor(await page.getByTestId("bar-sales").innerText())).toBe(barBefore + 2_500);
+  await expect(page.getByTestId("operations-table")).toContainText(`${name} × 2`);
+
+  // Возврат чека целиком.
+  await page.getByRole("link", { name: "Бар" }).first().click();
+  await sale.getByRole("button", { name: "Вернуть" }).click();
+  await sale.getByLabel("Причина возврата").fill("e2e: возврат");
+  await sale.getByRole("button", { name: "Вернуть чек" }).click();
+  await expect(sale).toHaveAttribute("data-status", "Refunded");
+  await expect(tile).toContainText("Остаток: 5");
+
+  // Снять тестовый товар с продажи.
+  await page.getByRole("tab", { name: "Товары и склад" }).click();
+  await row.getByRole("button", { name: "Снять с продажи" }).click();
+  await expect(row.getByRole("button", { name: "Вернуть в продажу" })).toBeVisible();
+});
