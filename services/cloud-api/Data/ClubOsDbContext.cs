@@ -8,6 +8,7 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
     public DbSet<Organization> Organizations => Set<Organization>();
     public DbSet<Location> Locations => Set<Location>();
     public DbSet<Zone> Zones => Set<Zone>();
+    public DbSet<TariffPackage> TariffPackages => Set<TariffPackage>();
     public DbSet<User> Users => Set<User>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<MfaRecoveryCode> MfaRecoveryCodes => Set<MfaRecoveryCode>();
@@ -49,7 +50,18 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.LocationId);
             e.Property(x => x.Rounding).HasConversion<string>();
+            e.Property(x => x.PeriodsJson).HasColumnType("jsonb");
             e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<TariffPackage>(e =>
+        {
+            e.ToTable("tariff_packages");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ZoneId, x.Name }).IsUnique();
+            e.HasIndex(x => x.LocationId);
+            e.HasOne<Zone>().WithMany().HasForeignKey(x => x.ZoneId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Organization>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<User>(e =>
@@ -147,6 +159,10 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.Property(x => x.EndReason).HasMaxLength(32);
             e.HasIndex(x => x.ClientId);
             e.HasOne<Client>().WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
+            // Снимок: пакет могут изменить или отключить — без внешнего ключа, название и цена хранятся в сессии.
+            e.Property(x => x.PeriodsJson).HasColumnType("jsonb");
+            e.Property(x => x.PackageName).HasMaxLength(40);
+            e.HasIndex(x => x.PackageId);
             e.HasOne<Device>().WithMany().HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Restrict);
         });
 

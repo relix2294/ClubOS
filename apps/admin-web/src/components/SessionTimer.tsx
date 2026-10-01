@@ -1,6 +1,6 @@
 "use client";
 
-import { calculateMinorUnits, remainingMs, type SessionView } from "@clubos/contracts";
+import { calculateSessionMinorUnits, remainingMs, type SessionView } from "@clubos/contracts";
 import { formatDuration, formatMoney } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { useNow } from "@/lib/usePolling";
@@ -17,8 +17,9 @@ export function useSessionClock(session: SessionView | null | undefined) {
   if (!session || !session.startedAtUtc) return null;
   const planned = session.plannedEndAtUtc ? Date.parse(session.plannedEndAtUtc) : null;
   const end = session.endedAtUtc ? Date.parse(session.endedAtUtc) : planned !== null ? Math.min(now, planned) : now;
-  const elapsed = Math.max(0, end - Date.parse(session.startedAtUtc));
-  const cost = session.totalMinorUnits ?? calculateMinorUnits(session.pricePerHourMinorUnits, elapsed);
+  const started = Date.parse(session.startedAtUtc);
+  const elapsed = Math.max(0, end - started);
+  const cost = session.totalMinorUnits ?? calculateSessionMinorUnits(session, started, elapsed);
   const remaining = session.endedAtUtc ? null : remainingMs(session, now);
   return {
     duration: formatDuration(elapsed),

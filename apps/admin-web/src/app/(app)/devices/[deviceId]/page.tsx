@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import {
   SessionLimits,
+  periodContains,
   type AuditEventView,
   type ClientView,
   type CommandView,
@@ -21,7 +22,8 @@ import { useSessionClock } from "@/components/SessionTimer";
 import { CommandStateBadge, DeviceStatusBadge, SessionStateBadge } from "@/components/StatusBadge";
 import { Button, Card, EmptyState, ErrorState, Field, Loading, SimulatedBadge, inputClass } from "@/components/ui";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
-import { formatDateTime, formatLimit, formatMoney, formatTime } from "@/lib/format";
+import { formatDateTime, formatLimit, formatMoney, formatTime, inStartWindow, localDayMinute } from "@/lib/format";
+import { windowLabel } from "@/components/ZoneTariffEditor";
 import { actionLabel, t } from "@/lib/i18n";
 import { usePolling } from "@/lib/usePolling";
 
@@ -147,7 +149,20 @@ function SessionCard({ device, onChange }: { device: DeviceView; onChange: () =>
     }
   };
 
+  // Цена «сейчас» и доступность пакетов — по местному времени локации.
+  const local = localDayMinute(location.timezone);
+  const nowPeriod = zone?.periods.find((p) => periodContains(p, local.day, local.minute));
+  const packages = zone?.packages.filter((p) => p.isActive) ?? [];
+
   const start = () => {
+    if (limit.startsWith("pkg:")) {
+      const body: StartSessionRequest = { packageId: limit.slice(4), clientId: client?.clientId ?? null };
+      void act(async () => {
+        await apiPost(`devices/${device.deviceId}/sessions`, body);
+        setClient(null);
+      });
+      return;
+    }
     const minutes = limit === "open" ? null : limit === "custom" ? Number(custom) : Number(limit);
     if (minutes !== null && (!Number.isInteger(minutes) || minutes < SessionLimits.minDurationMinutes || minutes > SessionLimits.maxDurationMinutes)) {
       setError(`Лимит — от ${SessionLimits.minDurationMinutes} до ${SessionLimits.maxDurationMinutes} минут.`);
@@ -174,11 +189,23 @@ function SessionCard({ device, onChange }: { device: DeviceView; onChange: () =>
           <p className="text-sm text-slate-600">
             {t.device.tariff}: <span className="font-semibold">{formatMoney(zone.pricePerHourMinorUnits, location.currency)}</span>
             {t.device.perHour}
+            {nowPeriod && (
+              <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-semibold text-emerald-800" data-testid="price-now">
+                {t.tariffs.nowPrice}: {formatMoney(nowPeriod.pricePerHourMinorUnits, location.currency)}
+                {t.device.perHour}
+              </span>
+            )}
           </p>
         )}
 
         {!session && <p className="text-sm text-slate-500">{t.device.noSession}</p>}
         {session?.state === "Created" && <p className="text-sm text-amber-700">{t.device.waitingEdge}</p>}
+        {session?.packageName && (
+          <p className="text-sm text-slate-700" data-testid="session-package">
+            {t.tariffs.package}: <span className="font-semibold">{session.packageName}</span>
+            {session.packagePriceMinorUnits != null && ` · ${formatMoney(session.packagePriceMinorUnits, session.currency)}`}
+          </p>
+        )}
         {session?.state === "Active" && clock && (
           <div className={`grid gap-4 rounded-lg p-4 ${clock.soon ? "bg-amber-50" : "bg-blue-50"} ${limited ? "grid-cols-3" : "grid-cols-2"}`} data-testid="active-session">
             <div>
@@ -221,6 +248,20 @@ function SessionCard({ device, onChange }: { device: DeviceView; onChange: () =>
                 ))}
                 <option value="custom">{t.device.limitCustom}</option>
                 <option value="open">{t.device.limitOpen}</option>
+                {packages.length > 0 && (
+                  <optgroup label={t.tariffs.packagesTitle}>
+                    {packages.map((p) => {
+                      const available = inStartWindow(p.availableFromMinute, p.availableToMinute, local.minute);
+                      const window = windowLabel(p);
+                      return (
+                        <option key={p.packageId} value={`pkg:${p.packageId}`} disabled={!available}>
+                          {p.name} — {formatMoney(p.priceMinorUnits, location.currency)} ({formatLimit(p.durationMinutes)}
+                          {window ? `, ${window}` : ""}){available ? "" : ` · ${t.tariffs.unavailableNow}`}
+                        </option>
+                      );
+                    })}
+                  </optgroup>
+                )}
               </select>
             </Field>
             {limit === "custom" && (
@@ -284,6 +325,7 @@ function SessionCard({ device, onChange }: { device: DeviceView; onChange: () =>
                     {t.device.limitLabel} {formatLimit(limitMinutes(s)!)}
                   </span>
                 )}
+                {s.packageName && <span className="rounded bg-brand-50 px-1.5 text-xs text-brand-700">{s.packageName}</span>}
                 {s.totalMinorUnits !== null && <span className="font-semibold">{formatMoney(s.totalMinorUnits, s.currency)}</span>}
                 {s.endReason && (
                   <span className="text-xs text-slate-500">{s.endReason === "timeLimit" ? t.device.endReasonTimeLimit : t.device.endReasonStaff}</span>

@@ -1,3 +1,4 @@
+using ClubOS.CloudApi.Api;
 using ClubOS.CloudApi.Data;
 using ClubOS.CloudApi.Domain;
 using ClubOS.CloudApi.Infrastructure;
@@ -241,7 +242,7 @@ public sealed class SyncIngestor(ClubOsDbContext db, AuditWriter audit, TimeProv
         }
 
         // Итог считает Edge по снимку тарифа; Cloud фиксирует его как есть и сверяет расчёт.
-        var expected = BillingCalculator.CalculateMinorUnits(p.PriceSnapshot, p.EndedAtUtc - p.StartedAtUtc);
+        var expected = BillingCalculator.CalculateMinorUnits(p.PriceSnapshot, p.StartedAtUtc, p.EndedAtUtc - p.StartedAtUtc);
         if (expected != p.TotalMinorUnits)
         {
             logger.LogWarning("Session {SessionId}: edge total {EdgeTotal} != cloud recalculation {Expected}",
@@ -252,10 +253,7 @@ public sealed class SyncIngestor(ClubOsDbContext db, AuditWriter audit, TimeProv
         session.StartedAtUtc = p.StartedAtUtc;
         session.EndedAtUtc = p.EndedAtUtc;
         session.TotalMinorUnits = p.TotalMinorUnits;
-        session.PricePerHourMinorUnits = p.PriceSnapshot.PricePerHourMinorUnits;
-        session.Currency = p.PriceSnapshot.Currency;
-        session.Rounding = p.PriceSnapshot.Rounding;
-        session.RuleVersion = p.PriceSnapshot.RuleVersion;
+        session.ApplySnapshot(p.PriceSnapshot);
         session.EndedBy = p.Actor;
         session.EndReason = p.Reason;
         audit.Write(edge.TenantId, edge.LocationId, p.Actor, "session.ended", $"device:{p.DeviceId}",
@@ -318,8 +316,10 @@ public sealed class SyncIngestor(ClubOsDbContext db, AuditWriter audit, TimeProv
         return null;
     }
 
-    private Session NewSession(EdgeContext edge, string sessionId, string deviceId, PriceSnapshot snapshot, string actor,
-        string origin, EventEnvelope evt) => new()
+    private static Session NewSession(EdgeContext edge, string sessionId, string deviceId, PriceSnapshot snapshot, string actor,
+        string origin, EventEnvelope evt)
+    {
+        var session = new Session
         {
             Id = sessionId,
             TenantId = edge.TenantId,
@@ -335,6 +335,9 @@ public sealed class SyncIngestor(ClubOsDbContext db, AuditWriter audit, TimeProv
             StartedBy = actor,
             CorrelationId = evt.CorrelationId ?? evt.EventId
         };
+        session.ApplySnapshot(snapshot);
+        return session;
+    }
 
     private static bool IsUniqueViolation(DbUpdateException ex) =>
         ex.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.UniqueViolation };

@@ -47,7 +47,7 @@ public static class ShellClock
     }
 
     public static long CurrentCost(ShellSession session, DateTimeOffset edgeNow) =>
-        BillingCalculator.CalculateMinorUnits(session.PriceSnapshot, Elapsed(session, edgeNow));
+        BillingCalculator.CalculateMinorUnits(session.PriceSnapshot, session.StartedAtUtc, Elapsed(session, edgeNow));
 
     public static ShellWarning Warning(ShellSession session, DateTimeOffset edgeNow) =>
         Remaining(session, edgeNow) switch

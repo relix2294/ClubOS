@@ -38,6 +38,12 @@ public sealed record EdgeConfigResponse
 
     /// <summary>Отозванные устройства локации: Edge удаляет их и больше не принимает их запросы (D-011).</summary>
     public IReadOnlyList<string> RevokedDeviceIds { get; init; } = [];
+
+    /// <summary>
+    /// Смещение местного времени локации от UTC на момент выдачи конфигурации (минуты) — для снимка тарифа
+    /// сессий, начатых на Edge локально. Edge не зависит от базы часовых поясов Windows.
+    /// </summary>
+    public int UtcOffsetMinutes { get; init; }
 }
 
 public sealed record EdgeZoneConfig
@@ -47,6 +53,9 @@ public sealed record EdgeZoneConfig
     public required long PricePerHourMinorUnits { get; init; }
     public required RoundingRule Rounding { get; init; }
     public required int RuleVersion { get; init; }
+
+    /// <summary>Периоды цены зоны (ночь, выходные); пусто — одна цена.</summary>
+    public IReadOnlyList<PricePeriod> Periods { get; init; } = [];
 }
 
 public sealed record EdgeDeviceConfig

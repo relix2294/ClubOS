@@ -18,7 +18,7 @@ public static class CashMath
     {
         SessionState.Ended => s.TotalMinorUnits ?? 0,
         SessionState.Active when s is { StartedAtUtc: { } started, PlannedEndAtUtc: { } planned } && planned >= started =>
-            BillingCalculator.CalculateMinorUnits(s.Snapshot(), planned - started),
+            BillingCalculator.CalculateMinorUnits(s.Snapshot(), started, planned - started),
         SessionState.Created or SessionState.Active => null,
         _ => 0
     };

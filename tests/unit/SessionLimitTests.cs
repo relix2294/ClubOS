@@ -48,7 +48,7 @@ public class SessionLimitTests : IDisposable
     }
 
     [Fact]
-    public void Database_is_migrated_to_current_schema() => Assert.Equal(3, _db.SchemaVersion); // v2 — лимиты сессий, v3 — бездисковые ПК
+    public void Database_is_migrated_to_current_schema() => Assert.Equal(4, _db.SchemaVersion); // v2 — лимиты сессий, v3 — бездисковые ПК, v4 — тарифы по времени и пакеты
 
     [Fact]
     public async Task Limited_session_has_planned_end_in_state_and_event()
@@ -262,6 +262,108 @@ public class SessionLimitTests : IDisposable
 
         Assert.Equal(_time.Now.AddMinutes(90), _store.GetSession("ses_cloud")!.PlannedEndAtUtc);
         Assert.Equal(1, CountEvents(EventTypes.SessionExtended));
+    }
+
+    [Fact]
+    public async Task Local_session_uses_zone_periods_and_offset_from_config()
+    {
+        // 10:00 UTC = 15:00 в Душанбе (UTC+5); с 15:10 до 16:00 — «счастливый час» 60/час.
+        await _store.SaveConfigAsync(new EdgeConfigResponse
+        {
+            LocationId = "loc_1",
+            LocationName = "Dushanbe Pilot",
+            Timezone = "Asia/Dushanbe",
+            Currency = "TJS",
+            UtcOffsetMinutes = 300,
+            Zones =
+            [
+                new EdgeZoneConfig
+                {
+                    ZoneId = "zone_std", Name = "Standard", PricePerHourMinorUnits = 12_000, Rounding = RoundingRule.CeilingPerMinute,
+                    RuleVersion = 2,
+                    Periods = [new PricePeriod { Days = PricePeriod.AllDays, StartMinute = 15 * 60 + 10, EndMinute = 16 * 60, PricePerHourMinorUnits = 6_000 }]
+                }
+            ],
+            Devices = [new EdgeDeviceConfig { DeviceId = DeviceId, DisplayName = "PC-01", ZoneId = "zone_std", Simulated = false, CertificatePem = "cert" }]
+        });
+
+        var price = _store.GetZonePrice("zone_std")!;
+        Assert.Equal(300, price.UtcOffsetMinutes);
+        Assert.Single(price.Periods);
+
+        var session = await StartLimited(30);
+        Assert.Single(session.PriceSnapshot.Periods); // снимок с периодами сохранён в сессии
+        _time.Advance(TimeSpan.FromMinutes(30));
+        var ended = Assert.Single(await _store.EndExpiredSessionsAsync());
+        // 10 мин × 120 + 20 мин × 60 = 20,00 + 20,00.
+        Assert.Equal(4_000, ended.TotalMinorUnits);
+        var evt = LastEvent<SessionEndedPayload>(EventTypes.SessionEnded);
+        Assert.Equal(4_000, evt.TotalMinorUnits);
+        Assert.Equal(300, evt.PriceSnapshot.UtcOffsetMinutes);
+        Assert.Single(evt.PriceSnapshot.Periods);
+    }
+
+    [Fact]
+    public async Task Cloud_package_session_keeps_package_price_and_bills_extension()
+    {
+        var snapshot = _store.GetZonePrice("zone_std")! with
+        {
+            PackageId = "pkg_1",
+            PackageName = "1 час",
+            PackageMinutes = 60,
+            PackagePriceMinorUnits = 10_000
+        };
+        await _store.ApplyCloudCommandAsync(new EdgeCommand
+        {
+            Id = "ecm_pkg",
+            Kind = EdgeCommandKind.StartSession,
+            IssuedAtUtc = _time.Now,
+            ExpiresAtUtc = _time.Now.AddMinutes(10),
+            StartSession = new StartSessionCommand
+            {
+                SessionId = "ses_pkg",
+                DeviceId = DeviceId,
+                PriceSnapshot = snapshot,
+                Actor = "user:x",
+                CorrelationId = "cor_pkg",
+                DurationMinutes = 60
+            }
+        });
+
+        // Агент видит пакет в снимке — индикатор на ПК считает так же.
+        Assert.Equal("1 час", _store.GetAgentState(DeviceId)!.Session!.PriceSnapshot.PackageName);
+        Assert.Equal(10_000, LastEvent<SessionStartedPayload>(EventTypes.SessionStarted).PriceSnapshot.PackagePriceMinorUnits);
+
+        // Продление на 15 мин и полный лимит: пакет + 15 мин × 120/час.
+        await _store.ExtendSessionAsync("ses_pkg", 15, "op");
+        _time.Advance(TimeSpan.FromMinutes(75));
+        var ended = Assert.Single(await _store.EndExpiredSessionsAsync());
+        Assert.Equal(10_000 + 3_000, ended.TotalMinorUnits);
+    }
+
+    [Fact]
+    public async Task Package_session_ended_early_costs_the_package_price()
+    {
+        var snapshot = _store.GetZonePrice("zone_std")! with { PackageId = "pkg_1", PackageName = "3 часа", PackageMinutes = 180, PackagePriceMinorUnits = 25_000 };
+        await _store.ApplyCloudCommandAsync(new EdgeCommand
+        {
+            Id = "ecm_pkg2",
+            Kind = EdgeCommandKind.StartSession,
+            IssuedAtUtc = _time.Now,
+            ExpiresAtUtc = _time.Now.AddMinutes(10),
+            StartSession = new StartSessionCommand
+            {
+                SessionId = "ses_pkg2",
+                DeviceId = DeviceId,
+                PriceSnapshot = snapshot,
+                Actor = "user:x",
+                CorrelationId = "cor_pkg2",
+                DurationMinutes = 180
+            }
+        });
+        _time.Advance(TimeSpan.FromMinutes(20));
+        var result = await _store.EndSessionAsync("ses_pkg2", "op");
+        Assert.Equal(25_000, result.Session!.TotalMinorUnits);
     }
 
     [Fact]

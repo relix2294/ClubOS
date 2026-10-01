@@ -154,6 +154,13 @@ export interface SessionView {
   endReason: SessionEndReason | null;
   /** Клиент клуба, на которого начата сессия (оплата с его баланса). */
   clientId?: string | null;
+  /** Периоды тарифа (ночь, выходные) из снимка; пусто — одна цена. */
+  periods?: PricePeriod[];
+  /** Смещение местного времени от UTC на старте (минуты). */
+  utcOffsetMinutes?: number;
+  packageName?: string | null;
+  packageMinutes?: number | null;
+  packagePriceMinorUnits?: number | null;
 }
 
 export type SessionEndReason = "staff" | "timeLimit";
@@ -161,6 +168,8 @@ export type SessionEndReason = "staff" | "timeLimit";
 export interface StartSessionRequest {
   durationMinutes?: number | null;
   clientId?: string | null;
+  /** Пакет зоны: лимит и цена берутся из пакета, durationMinutes не передаётся. */
+  packageId?: string | null;
 }
 
 export interface ExtendSessionRequest {
@@ -299,6 +308,40 @@ export interface ZoneView {
   zoneId: string;
   name: string;
   pricePerHourMinorUnits: number;
+  /** Цена по времени суток и дням недели (первый подходящий период). */
+  periods: PricePeriod[];
+  /** Активные пакеты зоны (и неактивные — для locations.manage). */
+  packages: TariffPackageView[];
+}
+
+/** Дни недели маской: пн = 1, вт = 2, ср = 4, чт = 8, пт = 16, сб = 32, вс = 64; 127 — все. */
+export interface PricePeriod {
+  days: number;
+  /** Минуты от полуночи, [start, end); start > end — через полночь (22:00–08:00). */
+  startMinute: number;
+  endMinute: number;
+  pricePerHourMinorUnits: number;
+}
+
+export interface TariffPackageView {
+  packageId: string;
+  zoneId: string;
+  name: string;
+  durationMinutes: number;
+  priceMinorUnits: number;
+  /** Окно начала по местному времени (минуты от полуночи); null — в любое время. */
+  availableFromMinute: number | null;
+  availableToMinute: number | null;
+  isActive: boolean;
+}
+
+export interface TariffPackageInput {
+  name: string;
+  durationMinutes: number;
+  priceMinorUnits: number;
+  availableFromMinute?: number | null;
+  availableToMinute?: number | null;
+  isActive?: boolean;
 }
 
 export interface EdgeView {
@@ -364,6 +407,63 @@ export function calculateMinorUnits(pricePerHourMinorUnits: number, elapsedMs: n
   const totalSeconds = Math.ceil(elapsedMs / 1000);
   const minutes = Math.ceil(totalSeconds / 60);
   return Math.floor((minutes * pricePerHourMinorUnits) / 60);
+}
+
+export interface SessionPricing {
+  pricePerHourMinorUnits: number;
+  periods?: PricePeriod[];
+  utcOffsetMinutes?: number;
+  packageMinutes?: number | null;
+  packagePriceMinorUnits?: number | null;
+}
+
+/** День недели в маске периода: пн = бит 0 … вс = бит 6 (JS getUTCDay: вс = 0). */
+export function dayBit(jsDay: number): number {
+  return 1 << ((jsDay + 6) % 7);
+}
+
+export function periodContains(p: PricePeriod, jsDay: number, minuteOfDay: number): boolean {
+  if (p.startMinute < p.endMinute) {
+    return (p.days & dayBit(jsDay)) !== 0 && minuteOfDay >= p.startMinute && minuteOfDay < p.endMinute;
+  }
+  const previous = (jsDay + 6) % 7;
+  return ((p.days & dayBit(jsDay)) !== 0 && minuteOfDay >= p.startMinute) || ((p.days & dayBit(previous)) !== 0 && minuteOfDay < p.endMinute);
+}
+
+/** Цена часа в момент atMs по периодам снимка (как BillingCalculator.PricePerHourAt). */
+export function pricePerHourAt(pricing: SessionPricing, atMs: number): number {
+  const periods = pricing.periods ?? [];
+  if (periods.length === 0) return pricing.pricePerHourMinorUnits;
+  const local = new Date(atMs + (pricing.utcOffsetMinutes ?? 0) * 60_000);
+  const minute = local.getUTCHours() * 60 + local.getUTCMinutes();
+  return periods.find((p) => periodContains(p, local.getUTCDay(), minute))?.pricePerHourMinorUnits ?? pricing.pricePerHourMinorUnits;
+}
+
+/**
+ * Зеркало BillingCalculator.CalculateMinorUnits(snapshot, start, elapsed): минуты вверх, каждая — по цене
+ * периода её начала, пакет покрывает первые N минут своей ценой. Только для предварительного отображения.
+ */
+export function calculateSessionMinorUnits(pricing: SessionPricing, startedAtMs: number, elapsedMs: number): number {
+  if (elapsedMs <= 0 && !(pricing.packageMinutes && pricing.packagePriceMinorUnits != null)) return 0;
+  const minutes = elapsedMs <= 0 ? 0 : Math.ceil(Math.ceil(elapsedMs / 1000) / 60);
+  let total = 0;
+  let from = 0;
+  if (pricing.packageMinutes && pricing.packageMinutes > 0 && pricing.packagePriceMinorUnits != null) {
+    total = pricing.packagePriceMinorUnits;
+    from = Math.min(minutes, pricing.packageMinutes);
+  }
+  let sum = 0;
+  if ((pricing.periods ?? []).length === 0) {
+    sum = (minutes - from) * pricing.pricePerHourMinorUnits;
+  } else {
+    for (let i = from; i < minutes; i++) sum += pricePerHourAt(pricing, startedAtMs + i * 60_000);
+  }
+  return total + Math.floor(sum / 60);
+}
+
+/** «22:00» из минут от полуночи; 1440 → «24:00». */
+export function formatMinuteOfDay(minute: number): string {
+  return `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
 }
 
 // ---- Live-обновления Admin Web (SSE /api/v1/live, DEVIATIONS D-008) ----

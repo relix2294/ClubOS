@@ -58,6 +58,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run lint
       - run: npm run typecheck
+      - name: Contracts (TS) billing tests
+        run: node --experimental-strip-types --test ../../packages/contracts-typescript/billing.test.ts
       - run: npm run build
 
   # Windows Agent и Edge (сервер клуба на Windows) собираются и запускаются на Windows runner (ТЗ §5 п.10, §30).

@@ -102,6 +102,14 @@ public sealed class EdgeDatabase : IDisposable
             Exec(connection, tx, "PRAGMA user_version = 3;");
             tx.Commit();
         }
+
+        if (version < 4)
+        {
+            using var tx = connection.BeginTransaction();
+            Exec(connection, tx, Schema.V4);
+            Exec(connection, tx, "PRAGMA user_version = 4;");
+            tx.Commit();
+        }
     }
 
     public int SchemaVersion => Convert.ToInt32(Read(c => Scalar(c, "PRAGMA user_version;")));
@@ -234,6 +242,16 @@ public sealed class EdgeDatabase : IDisposable
                 first_seen_utc TEXT NOT NULL,
                 last_seen_utc  TEXT NOT NULL
             );
+            """;
+
+        /// <summary>
+        /// M1: тарифы по времени и пакеты. periods_json — периоды цены зоны из конфигурации Cloud;
+        /// price_snapshot_json — полный снимок тарифа сессии (периоды, смещение времени, пакет). Колонки цены
+        /// остаются для отчётов и старых строк: если снимка нет — одна цена.
+        /// </summary>
+        public const string V4 = """
+            ALTER TABLE zones ADD COLUMN periods_json TEXT NULL;
+            ALTER TABLE sessions ADD COLUMN price_snapshot_json TEXT NULL;
             """;
     }
 }

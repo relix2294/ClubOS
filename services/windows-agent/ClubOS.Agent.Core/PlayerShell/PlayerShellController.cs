@@ -155,7 +155,7 @@ public sealed class PlayerShellController : IShellInput
                             SessionId = s.SessionId,
                             StartedAtUtc = s.StartedAtUtc,
                             EndedAtUtc = planned,
-                            TotalMinorUnits = BillingCalculator.CalculateMinorUnits(s.PriceSnapshot, planned - s.StartedAtUtc),
+                            TotalMinorUnits = BillingCalculator.CalculateMinorUnits(s.PriceSnapshot, s.StartedAtUtc, planned - s.StartedAtUtc),
                             Currency = s.PriceSnapshot.Currency,
                             Reason = SessionEndReasons.TimeLimit,
                             Estimated = true

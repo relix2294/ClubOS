@@ -62,3 +62,17 @@ export function formatPhone(digits: string): string {
   const m = /^(\d{3})(\d{2})(\d{3})(\d{2})(\d{2})$/.exec(digits);
   return m ? `+${m[1]} ${m[2]} ${m[3]} ${m[4]} ${m[5]}` : `+${digits}`;
 }
+
+/** Местный день недели (0 — вс, как getDay) и минута суток в часовом поясе локации. */
+export function localDayMinute(timeZone: string, at: Date = new Date()): { day: number; minute: number } {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(at);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(get("weekday"));
+  return { day, minute: Number(get("hour")) * 60 + Number(get("minute")) };
+}
+
+/** Окно начала пакета [from, to) по местной минуте; через полночь, если from > to. */
+export function inStartWindow(from: number | null, to: number | null, minute: number): boolean {
+  if (from === null || to === null) return true;
+  return from < to ? minute >= from && minute < to : minute >= from || minute < to;
+}

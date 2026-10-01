@@ -80,7 +80,32 @@ public sealed record MeResponse(UserView User, IReadOnlyList<LocationView> Locat
 public sealed record LocationView(string LocationId, string Name, string Timezone, string Currency,
     IReadOnlyList<ZoneView> Zones, IReadOnlyList<EdgeView> Edges);
 
-public sealed record ZoneView(string ZoneId, string Name, long PricePerHourMinorUnits);
+public sealed record ZoneView(
+    string ZoneId,
+    string Name,
+    long PricePerHourMinorUnits,
+    IReadOnlyList<PricePeriod> Periods,
+    IReadOnlyList<TariffPackageView> Packages);
+
+public sealed record TariffPackageView(
+    string PackageId,
+    string ZoneId,
+    string Name,
+    int DurationMinutes,
+    long PriceMinorUnits,
+    int? AvailableFromMinute,
+    int? AvailableToMinute,
+    bool IsActive);
+
+public sealed record TariffPackageInput(
+    string? Name,
+    int DurationMinutes,
+    long PriceMinorUnits,
+    int? AvailableFromMinute,
+    int? AvailableToMinute,
+    bool? IsActive);
+
+public sealed record ZonePeriodsRequest(IReadOnlyList<PricePeriod>? Periods);
 
 public sealed record EdgeView(string EdgeId, string Name, bool Online, DateTimeOffset? LastSeenAtUtc,
     int PendingOutboxEvents, DateTimeOffset EnrolledAtUtc, DateTimeOffset CertificateExpiresAtUtc);
@@ -140,10 +165,16 @@ public sealed record SessionView(
     int? DurationMinutes,
     DateTimeOffset? PlannedEndAtUtc,
     string? EndReason,
-    string? ClientId = null);
+    string? ClientId = null,
+    IReadOnlyList<PricePeriod>? Periods = null,
+    int UtcOffsetMinutes = 0,
+    string? PackageName = null,
+    int? PackageMinutes = null,
+    long? PackagePriceMinorUnits = null);
 
 /// <summary>Тело запроса старта; пустое тело — открытая сессия. ClientId — сессия клиента (оплата с его баланса).</summary>
-public sealed record StartSessionRequestBody(int? DurationMinutes, string? ClientId = null);
+/// <param name="PackageId">Пакет зоны ПК: лимит и цена из пакета, DurationMinutes не задаётся.</param>
+public sealed record StartSessionRequestBody(int? DurationMinutes, string? ClientId = null, string? PackageId = null);
 
 public sealed record ExtendSessionRequest(int Minutes);
 

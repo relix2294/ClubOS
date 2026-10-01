@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { Fragment, useState, type FormEvent } from "react";
 import type { CreateLocationRequest, LocationView, ZoneView } from "@clubos/contracts";
 import { useShell } from "@/components/AppShell";
 import { Button, Card, EmptyState, Field, inputClass } from "@/components/ui";
 import { apiPost } from "@/lib/api";
 import { formatMoney, parseMoney } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import { ZoneTariffEditor, periodLabel } from "@/components/ZoneTariffEditor";
 
 /** Локации, зоны и тарифы (только владелец). Цена меняет версию правила; идущие сессии считаются по старой цене. */
 export default function LocationsPage() {
@@ -90,6 +91,7 @@ function LocationCard({ location, onChanged }: { location: LocationView; onChang
 
 function ZoneRow({ zone, currency, onChanged }: { zone: ZoneView; currency: string; onChanged: () => void }) {
   const [editing, setEditing] = useState(false);
+  const [tariffsOpen, setTariffsOpen] = useState(false);
   const [name, setName] = useState(zone.name);
   const [price, setPrice] = useState("");
   const [error, setError] = useState<string>();
@@ -111,14 +113,29 @@ function ZoneRow({ zone, currency, onChanged }: { zone: ZoneView; currency: stri
   };
 
   if (!editing) {
+    const activePackages = zone.packages.filter((p) => p.isActive).length;
     return (
+      <Fragment>
       <tr data-testid="zone-row">
         <td className="py-2 pr-4 font-medium text-slate-900">{zone.name}</td>
         <td className="py-2 pr-4">
           {formatMoney(zone.pricePerHourMinorUnits, currency)}
           {t.device.perHour}
+          {zone.periods.map((p, i) => (
+            <span key={i} className="block text-xs text-slate-500">
+              {periodLabel(p, currency)}
+            </span>
+          ))}
+          {activePackages > 0 && (
+            <span className="block text-xs text-slate-500">
+              {t.tariffs.packagesTitle}: {activePackages}
+            </span>
+          )}
         </td>
-        <td className="py-2 text-right">
+        <td className="py-2 text-right whitespace-nowrap">
+          <Button variant="secondary" className="mr-2 py-1" onClick={() => setTariffsOpen((v) => !v)} aria-expanded={tariffsOpen}>
+            {tariffsOpen ? t.tariffs.hide : t.tariffs.configure}
+          </Button>
           <Button
             variant="secondary"
             className="py-1"
@@ -133,6 +150,14 @@ function ZoneRow({ zone, currency, onChanged }: { zone: ZoneView; currency: stri
           </Button>
         </td>
       </tr>
+      {tariffsOpen && (
+        <tr>
+          <td colSpan={3} className="pb-4">
+            <ZoneTariffEditor zone={zone} currency={currency} onChanged={onChanged} />
+          </td>
+        </tr>
+      )}
+      </Fragment>
     );
   }
 

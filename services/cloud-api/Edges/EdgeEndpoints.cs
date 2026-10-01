@@ -82,7 +82,7 @@ public static class EdgeEndpoints
         });
     }
 
-    private static async Task<IResult> GetConfig(HttpContext http, ClubOsDbContext db, CancellationToken ct)
+    private static async Task<IResult> GetConfig(HttpContext http, ClubOsDbContext db, TimeProvider time, CancellationToken ct)
     {
         var edge = EdgeContext.From(http.User);
         var location = await db.Locations.AsNoTracking().SingleAsync(x => x.Id == edge.LocationId, ct);
@@ -103,8 +103,10 @@ public static class EdgeEndpoints
                 Name = z.Name,
                 PricePerHourMinorUnits = z.PricePerHourMinorUnits,
                 Rounding = z.Rounding,
-                RuleVersion = z.RuleVersion
+                RuleVersion = z.RuleVersion,
+                Periods = PricingJson.Read(z.PeriodsJson)
             }).ToList(),
+            UtcOffsetMinutes = PricingJson.UtcOffsetMinutes(location.Timezone, time.GetUtcNow()),
             Devices = devices.Select(d => new EdgeDeviceConfig
             {
                 DeviceId = d.Id,

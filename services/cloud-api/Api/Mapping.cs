@@ -49,7 +49,8 @@ public static class Mapping
     public static SessionView ToView(this Session s) => new(
         s.Id, s.DeviceId, s.State, s.Origin, s.RequestedAtUtc, s.StartedAtUtc, s.EndRequestedAtUtc, s.EndedAtUtc,
         s.PricePerHourMinorUnits, s.Currency, s.Rounding, s.TotalMinorUnits, s.FailureReason, s.StartedBy, s.EndedBy,
-        s.DurationMinutes, s.PlannedEndAtUtc, s.EndReason, s.ClientId);
+        s.DurationMinutes, s.PlannedEndAtUtc, s.EndReason, s.ClientId, PricingJson.Read(s.PeriodsJson), s.UtcOffsetMinutes,
+        s.PackageName, s.PackageMinutes, s.PackagePriceMinorUnits);
 
     public static EdgeView ToView(this Edge e, DateTimeOffset now) => new(
         e.Id, e.Name, e.LastSeenAtUtc is not null && now - e.LastSeenAtUtc <= EdgeOnlineWindow, e.LastSeenAtUtc,
@@ -60,8 +61,36 @@ public static class Mapping
         PricePerHourMinorUnits = s.PricePerHourMinorUnits,
         Currency = s.Currency,
         Rounding = s.Rounding,
-        RuleVersion = s.RuleVersion
+        RuleVersion = s.RuleVersion,
+        Periods = PricingJson.Read(s.PeriodsJson),
+        UtcOffsetMinutes = s.UtcOffsetMinutes,
+        PackageId = s.PackageId,
+        PackageName = s.PackageName,
+        PackageMinutes = s.PackageMinutes,
+        PackagePriceMinorUnits = s.PackagePriceMinorUnits
     };
+
+    /// <summary>Записать снимок тарифа из события Edge в сессию Cloud.</summary>
+    public static void ApplySnapshot(this Session s, PriceSnapshot p)
+    {
+        s.PricePerHourMinorUnits = p.PricePerHourMinorUnits;
+        s.Currency = p.Currency;
+        s.Rounding = p.Rounding;
+        s.RuleVersion = p.RuleVersion;
+        s.PeriodsJson = PricingJson.Write(p.Periods);
+        s.UtcOffsetMinutes = p.UtcOffsetMinutes;
+        s.PackageId = p.PackageId;
+        s.PackageName = p.PackageName;
+        s.PackageMinutes = p.PackageMinutes;
+        s.PackagePriceMinorUnits = p.PackagePriceMinorUnits;
+    }
+
+    public static ZoneView ToView(this Zone z, IEnumerable<TariffPackage> packages) => new(
+        z.Id, z.Name, z.PricePerHourMinorUnits, PricingJson.Read(z.PeriodsJson),
+        packages.Where(p => p.ZoneId == z.Id).OrderBy(p => p.DurationMinutes).ThenBy(p => p.Name).Select(p => p.ToView()).ToList());
+
+    public static TariffPackageView ToView(this TariffPackage p) => new(
+        p.Id, p.ZoneId, p.Name, p.DurationMinutes, p.PriceMinorUnits, p.AvailableFromMinute, p.AvailableToMinute, p.IsActive);
 
     public static bool IsOpen(this Session s) => s.State is SessionState.Created or SessionState.Active;
 }

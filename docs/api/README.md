@@ -19,7 +19,7 @@ Tenant берётся только из JWT. Чужие объекты возв�
 | GET | `/api/v1/devices/{deviceId}/commands` | последние 50 команд |
 | POST | `/api/v1/devices/{deviceId}/commands` | `ShowMessage {title≤80, message≤500}` или `LockTestMode {lock, reason?}`; `ttlSeconds` 10–3600 (по умолчанию 120); `commandId` для идемпотентности |
 | GET | `/api/v1/devices/{deviceId}/sessions` | последние 20 сессий |
-| POST | `/api/v1/devices/{deviceId}/sessions` | запрос старта; тело необязательно: `{durationMinutes?: 1..1440}` — лимит времени (без него — открытая сессия, оплата по факту). **202**, `state=Created`; `Active` и `plannedEndAtUtc` приходят по событию от Edge. **409**, если открытая сессия уже есть; **400** — лимит вне диапазона |
+| POST | `/api/v1/devices/{deviceId}/sessions` | запрос старта; тело необязательно: `{durationMinutes?: 1..1440}` — лимит времени (без него — открытая сессия, оплата по факту). **202**, `state=Created`; `Active` и `plannedEndAtUtc` приходят по событию от Edge. **409**, если открытая сессия уже есть; **400** — лимит вне диапазона. `packageId` — пакет зоны ПК: лимит и цена из пакета (`durationMinutes` не передаётся); **409** `package_zone_mismatch`, `package_not_available` (вне окна начала), **404** — пакет отключён. Снимок тарифа сессии: цена, периоды, смещение местного времени (`utcOffsetMinutes`), пакет (`packageName`, `packageMinutes`, `packagePriceMinorUnits`) |
 | POST | `/api/v1/sessions/{sessionId}/end` | запрос завершения (идемпотентно): **202**, или **200** если уже завершена/запрошена |
 | POST | `/api/v1/devices/{deviceId}/revoke` | `enrollment.manage`: удалить (отозвать) устройство. **409**, если идёт сессия. Edge получает `RevokeDevice`, история сохраняется |
 | POST | `/api/v1/edges/{edgeId}/revoke` | `enrollment.manage`: отключить Edge. Его запросы получают **401**; для локации нужен новый Edge |
@@ -47,6 +47,9 @@ Tenant берётся только из JWT. Чужие объекты возв�
 | POST | `/api/v1/locations` | `locations.manage`: `{name, timezone (IANA), currency (ISO 4217), zones: [{name, pricePerHourMinorUnits}]}` |
 | POST | `/api/v1/locations/{id}/zones` | `locations.manage`: `{name, pricePerHourMinorUnits}` — новая зона (до 20 на локацию) |
 | POST | `/api/v1/zones/{id}` | `locations.manage`: `{name, pricePerHourMinorUnits}`. Смена цены увеличивает версию правила; идущие сессии досчитываются по снимку тарифа; Edge получает цену при обновлении конфигурации |
+| POST | `/api/v1/zones/{id}/periods` | `locations.manage`: `{periods: [{days, startMinute, endMinute, pricePerHourMinorUnits}]}` — заменить цены по времени (до 12). `days` — маска (пн = 1 … вс = 64, 127 — все), минуты от полуночи, `start > end` — через полночь. Минута сессии стоит цену первого подходящего периода по местному времени её начала, вне периодов — цена зоны. Изменение — новая версия правила, аудит `tariff.periods_changed`. **400** `invalid_period`, `too_many_periods` |
+| POST | `/api/v1/zones/{id}/packages` | `locations.manage`: `{name, durationMinutes, priceMinorUnits, availableFromMinute?, availableToMinute?, isActive?}` — пакет зоны (до 20). Окно — когда пакет можно начать (через полночь, если начало больше конца). **409** `duplicate_package` |
+| POST | `/api/v1/packages/{id}` | `locations.manage`: то же тело — изменить или отключить (`isActive: false`). Начатые сессии считаются по своему снимку |
 | POST | `/api/v1/staff/{id}/role` | `staff.manage`: `{role}`; последнего активного Owner понизить нельзя |
 | POST | `/api/v1/staff/{id}/deactivate`, `/activate` | `staff.manage`: отключение действует сразу; себя отключить нельзя |
 | POST | `/api/v1/staff/{id}/reset-password` | `staff.manage`: временный пароль, все сессии сотрудника отозваны |
@@ -126,7 +129,7 @@ Live-поток: тема `cash` (только с `cash.operate`).
 | POST | `/api/v1/clients/{clientId}/topups` | `{locationId, amountMinorUnits, method: Cash/Card, idempotencyKey?}` — пополнение в открытой смене локации (операция `BalanceTopUp`); **409** `shift_not_open` |
 | POST | `/api/v1/clients/{clientId}/adjustments` | `cash.refund`: `{amountMinorUnits ≠ 0, reason}` — бонус или исправление, в кассу не попадает; **409** `balance_out_of_range` |
 
-Сессия на клиента: `POST /api/v1/devices/{id}/sessions {durationMinutes?, clientId?}` (**409** `client_blocked`);
+Сессия на клиента: `POST /api/v1/devices/{id}/sessions {durationMinutes?, clientId?, packageId?}` (**409** `client_blocked`);
 `SessionView.clientId`, в кассе у строки к расчёту — `clientName` и `clientBalanceMinorUnits`.
 Аудит: `client.created` (телефон маскирован), `client.updated`, `client.blocked`, `client.unblocked`, `client.topup`,
 `client.adjustment`. Live: тема `cash`.

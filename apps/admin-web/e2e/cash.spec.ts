@@ -188,3 +188,69 @@ test("клиенты: регистрация → пополнение в кас�
   await page.getByRole("link", { name: "Журнал аудита" }).first().click();
   await expect(page.getByTestId("audit-table")).toContainText("Пополнен баланс клиента");
 });
+
+test("тарифы: цена по времени и пакет → сессия по пакету → итог = цена пакета", async ({ page }) => {
+  test.skip(!password, "Задайте E2E_PASSWORD");
+  await login(page);
+
+  const pkg = `E2E ${String(Date.now()).slice(-6)}`;
+  await page.getByRole("link", { name: "Локации и тарифы" }).first().click();
+  const card = page.getByTestId("location-card").filter({ has: page.getByRole("form", { name: "Добавить зону: Dushanbe Pilot" }) });
+  // Пакет — в каждой зоне локации: ПК симулятора могут быть в любой.
+  const zones = card.getByTestId("zone-row");
+  await expect(zones.first()).toBeVisible();
+  const zoneCount = await zones.count();
+  for (let i = 0; i < zoneCount; i++) {
+    await zones.nth(i).getByRole("button", { name: "Время и пакеты" }).click();
+  }
+  const editors = card.getByTestId("zone-tariffs");
+  await expect(editors).toHaveCount(zoneCount);
+  for (let i = 0; i < zoneCount; i++) {
+    const add = editors.nth(i).getByRole("form", { name: /^Добавить пакет:/ });
+    await add.getByLabel("Название").fill(pkg);
+    await add.getByLabel("Часов").fill("1");
+    await add.getByLabel(/^Цена/).fill("50");
+    await add.getByRole("button", { name: "Добавить пакет" }).click();
+    await expect(editors.nth(i).getByRole("form", { name: `Пакет: ${pkg}` })).toBeVisible();
+  }
+
+  // Цена по времени: период с ценой зоны (итоги других тестов не меняются), сохранить и убрать.
+  const periods = editors.first().getByRole("form", { name: /^Цена по времени:/ });
+  await periods.getByRole("button", { name: "Добавить период" }).click();
+  await expect(periods.getByTestId("period-row")).toHaveCount(1);
+  await periods.getByRole("button", { name: "Сохранить цены по времени" }).click();
+  await expect(periods.getByRole("status")).toContainText("Сохранено");
+  await expect(card.getByTestId("zone-row").first()).toContainText("Ежедневно 22:00–08:00");
+  await periods.getByRole("button", { name: "Удалить" }).click();
+  await periods.getByRole("button", { name: "Сохранить цены по времени" }).click();
+  await expect(card.getByTestId("zone-row").first()).not.toContainText("22:00–08:00");
+
+  // Сессия по пакету.
+  await page.getByRole("link", { name: "Устройства" }).first().click();
+  await page.getByTestId("device-tile").filter({ has: page.locator('[data-status="Idle"]') }).nth(2).click();
+  const start = page.getByRole("group", { name: "Начать сессию" });
+  const option = start.getByRole("option", { name: new RegExp(pkg) });
+  await start.getByLabel("Лимит времени").selectOption((await option.getAttribute("value"))!);
+  await start.getByRole("button", { name: "Начать сессию" }).click();
+  await expect(page.getByTestId("session-package")).toContainText(pkg, { timeout: 20_000 });
+  await expect(page.getByTestId("session-remaining")).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "Завершить сессию" }).click();
+  const last = page.getByTestId("session-history").locator("li").first();
+  await expect(last.locator('[data-state="Ended"]')).toBeVisible({ timeout: 20_000 });
+  await expect(last).toContainText(pkg);
+  await expect(last).toContainText("50,00 TJS"); // ранний конец — цена пакета
+
+  // Отключаем пакеты, чтобы не копились в списке.
+  await page.getByRole("link", { name: "Локации и тарифы" }).first().click();
+  for (let i = 0; i < zoneCount; i++) {
+    await card.getByTestId("zone-row").nth(i).getByRole("button", { name: "Время и пакеты" }).click();
+  }
+  const forms = card.getByRole("form", { name: `Пакет: ${pkg}` });
+  for (let i = 0; i < zoneCount; i++) {
+    await forms.nth(i).getByRole("button", { name: "Отключить" }).click();
+    await expect(forms.nth(i).getByRole("button", { name: "Включить" })).toBeVisible();
+  }
+
+  await page.getByRole("link", { name: "Журнал аудита" }).first().click();
+  await expect(page.getByTestId("audit-table")).toContainText("Добавлен пакет");
+});

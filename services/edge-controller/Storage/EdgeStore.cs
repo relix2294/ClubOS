@@ -79,16 +79,19 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
             SetKv(c, tx, "location_name", config.LocationName);
             SetKv(c, tx, "location_timezone", config.Timezone);
             SetKv(c, tx, "currency", config.Currency);
+            SetKv(c, tx, "utc_offset_minutes", config.UtcOffsetMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture));
             foreach (var z in config.Zones)
             {
                 c.Exec(tx, """
-                    INSERT INTO zones (zone_id, name, price_per_hour_minor_units, rounding, rule_version)
-                    VALUES ($id, $name, $price, $rounding, $rule)
+                    INSERT INTO zones (zone_id, name, price_per_hour_minor_units, rounding, rule_version, periods_json)
+                    VALUES ($id, $name, $price, $rounding, $rule, $periods)
                     ON CONFLICT(zone_id) DO UPDATE SET name = excluded.name,
                         price_per_hour_minor_units = excluded.price_per_hour_minor_units,
-                        rounding = excluded.rounding, rule_version = excluded.rule_version
+                        rounding = excluded.rounding, rule_version = excluded.rule_version,
+                        periods_json = excluded.periods_json
                     """, ("$id", z.ZoneId), ("$name", z.Name), ("$price", z.PricePerHourMinorUnits),
-                    ("$rounding", z.Rounding), ("$rule", z.RuleVersion));
+                    ("$rounding", z.Rounding), ("$rule", z.RuleVersion),
+                    ("$periods", z.Periods.Count == 0 ? null : JsonSerializer.Serialize(z.Periods, ContractJson.Options)));
             }
 
             foreach (var d in config.Devices)
@@ -187,14 +190,20 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
             return null;
         }
 
+        // Смещение времени — из последней конфигурации Cloud (Edge не зависит от базы часовых поясов Windows).
+        var offset = int.TryParse(GetKv("utc_offset_minutes"), System.Globalization.CultureInfo.InvariantCulture, out var o) ? o : 0;
         return database.Read(c => c.Query(null,
-            "SELECT price_per_hour_minor_units, rounding, rule_version FROM zones WHERE zone_id = $z",
+            "SELECT price_per_hour_minor_units, rounding, rule_version, periods_json FROM zones WHERE zone_id = $z",
             r => new PriceSnapshot
             {
                 PricePerHourMinorUnits = r.L("price_per_hour_minor_units"),
                 Currency = currency,
                 Rounding = Enum.Parse<RoundingRule>(r.S("rounding")),
-                RuleVersion = (int)r.L("rule_version")
+                RuleVersion = (int)r.L("rule_version"),
+                Periods = r.Str("periods_json") is { } json
+                    ? JsonSerializer.Deserialize<List<PricePeriod>>(json, ContractJson.Options) ?? []
+                    : [],
+                UtcOffsetMinutes = offset
             }, ("$z", zoneId)).FirstOrDefault());
     }
 
@@ -800,11 +809,12 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
         DateTimeOffset? plannedEnd = durationMinutes is { } minutes ? now.AddMinutes(minutes) : null;
         c.Exec(tx, """
             INSERT INTO sessions (session_id, device_id, state, origin, started_at_utc, price_per_hour_minor_units,
-                currency, rounding, rule_version, started_by, correlation_id, planned_end_at_utc)
-            VALUES ($id, $d, 'Active', $origin, $now, $price, $cur, $round, $rule, $actor, $cor, $planned)
+                currency, rounding, rule_version, started_by, correlation_id, planned_end_at_utc, price_snapshot_json)
+            VALUES ($id, $d, 'Active', $origin, $now, $price, $cur, $round, $rule, $actor, $cor, $planned, $snapshot)
             """, ("$id", sessionId), ("$d", deviceId), ("$origin", origin), ("$now", now),
             ("$price", price.PricePerHourMinorUnits), ("$cur", price.Currency), ("$round", price.Rounding),
-            ("$rule", price.RuleVersion), ("$actor", actor), ("$cor", correlationId), ("$planned", plannedEnd));
+            ("$rule", price.RuleVersion), ("$actor", actor), ("$cor", correlationId), ("$planned", plannedEnd),
+            ("$snapshot", JsonSerializer.Serialize(price, ContractJson.Options)));
 
         AppendEvent(c, tx, EventTypes.SessionStarted, sessionId, new SessionStartedPayload
         {
@@ -845,7 +855,7 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
             endedAt = session.StartedAtUtc;
         }
 
-        var total = BillingCalculator.CalculateMinorUnits(session.PriceSnapshot, endedAt - session.StartedAtUtc);
+        var total = BillingCalculator.CalculateMinorUnits(session.PriceSnapshot, session.StartedAtUtc, endedAt - session.StartedAtUtc);
         c.Exec(tx, """
             UPDATE sessions SET state = 'Ended', ended_at_utc = $ended, total_minor_units = $total, ended_by = $actor,
                 end_reason = $reason
@@ -1015,13 +1025,15 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
     private static EdgeSession MapSession(SqliteDataReader r) => new(
         r.S("session_id"), r.S("device_id"), Enum.Parse<SessionState>(r.S("state")), r.S("origin"),
         r.T("started_at_utc"), r.TN("ended_at_utc"),
-        new PriceSnapshot
-        {
-            PricePerHourMinorUnits = r.L("price_per_hour_minor_units"),
-            Currency = r.S("currency"),
-            Rounding = Enum.Parse<RoundingRule>(r.S("rounding")),
-            RuleVersion = (int)r.L("rule_version")
-        },
+        r.Str("price_snapshot_json") is { } snapshot
+            ? JsonSerializer.Deserialize<PriceSnapshot>(snapshot, ContractJson.Options)!
+            : new PriceSnapshot
+            {
+                PricePerHourMinorUnits = r.L("price_per_hour_minor_units"),
+                Currency = r.S("currency"),
+                Rounding = Enum.Parse<RoundingRule>(r.S("rounding")),
+                RuleVersion = (int)r.L("rule_version")
+            },
         r.LN("total_minor_units"), r.S("started_by"), r.Str("ended_by"), r.S("correlation_id"),
         r.TN("planned_end_at_utc"), r.Str("end_reason"));
 }

@@ -59,10 +59,14 @@ public static class StaffEndpoints
             .ToListAsync(ct);
         var edges = await db.Edges.AsNoTracking().Where(x => x.TenantId == staff.TenantId && x.RevokedAtUtc == null)
             .ToListAsync(ct);
+        // Неактивные пакеты видит только тот, кто ими управляет.
+        var manage = Permissions.Has(staff.Role, Permissions.LocationsManage);
+        var packages = await db.TariffPackages.AsNoTracking()
+            .Where(x => locationIds.Contains(x.LocationId) && (manage || x.IsActive)).ToListAsync(ct);
         var now = time.GetUtcNow();
 
         var views = locations.Select(l => new LocationView(l.Id, l.Name, l.Timezone, l.Currency,
-            zones.Where(z => z.LocationId == l.Id).Select(z => new ZoneView(z.Id, z.Name, z.PricePerHourMinorUnits)).ToList(),
+            zones.Where(z => z.LocationId == l.Id).Select(z => z.ToView(packages)).ToList(),
             edges.Where(e => e.LocationId == l.Id).Select(e => e.ToView(now)).ToList())).ToList();
 
         return Results.Ok(new MeResponse(user.ToView(org.Name, tokens.MfaSetupRequired(user)), views));
@@ -278,6 +282,37 @@ public static class StaffEndpoints
 
         var zone = await db.Zones.SingleAsync(x => x.Id == device.ZoneId, ct);
         var location = await db.Locations.SingleAsync(x => x.Id == device.LocationId, ct);
+        var now = time.GetUtcNow();
+        TariffPackage? package = null;
+        if (body?.PackageId is { } packageId)
+        {
+            if (duration is not null)
+            {
+                return Problems.Validation("durationMinutes", "У сессии по пакету лимит задаёт пакет.");
+            }
+
+            package = await db.TariffPackages.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == packageId && x.TenantId == staff.TenantId, ct);
+            if (package is null || !package.IsActive)
+            {
+                return Problems.NotFound("Пакет");
+            }
+
+            if (package.ZoneId != zone.Id)
+            {
+                return Problems.Conflict("package_zone_mismatch", $"Пакет «{package.Name}» — для другой зоны.");
+            }
+
+            var (_, minute) = PricingJson.LocalMinute(location.Timezone, now);
+            if (!PricingJson.InWindow(package.AvailableFromMinute, package.AvailableToMinute, minute))
+            {
+                return Problems.Conflict("package_not_available",
+                    $"Пакет «{package.Name}» можно начать с {ClockText(package.AvailableFromMinute!.Value)} до {ClockText(package.AvailableToMinute!.Value)}.");
+            }
+
+            duration = package.DurationMinutes;
+        }
+
         if (body?.ClientId is { } clientId)
         {
             var client = await db.Clients.AsNoTracking().SingleOrDefaultAsync(x => x.Id == clientId && x.TenantId == staff.TenantId, ct);
@@ -291,7 +326,6 @@ public static class StaffEndpoints
                 return Problems.Conflict("client_blocked", "Клиент заблокирован.");
             }
         }
-        var now = time.GetUtcNow();
         var session = new Session
         {
             Id = Ids.New("ses"),
@@ -308,7 +342,13 @@ public static class StaffEndpoints
             StartedBy = staff.Actor,
             CorrelationId = Ids.New("cor"),
             DurationMinutes = duration,
-            ClientId = body?.ClientId
+            ClientId = body?.ClientId,
+            PeriodsJson = zone.PeriodsJson,
+            UtcOffsetMinutes = PricingJson.UtcOffsetMinutes(location.Timezone, now),
+            PackageId = package?.Id,
+            PackageName = package?.Name,
+            PackageMinutes = package?.DurationMinutes,
+            PackagePriceMinorUnits = package?.PriceMinorUnits
         };
         db.Sessions.Add(session);
         EdgeQueue.Enqueue(db, staff.TenantId, device.LocationId, new EdgeCommand
@@ -329,11 +369,22 @@ public static class StaffEndpoints
         });
         audit.Write(staff.TenantId, device.LocationId, staff.Actor, "session.start", $"device:{deviceId}",
             AuditResults.Requested, session.CorrelationId,
-            new { sessionId = session.Id, zone.PricePerHourMinorUnits, durationMinutes = duration, clientId = body?.ClientId });
+            new
+            {
+                sessionId = session.Id,
+                zone.PricePerHourMinorUnits,
+                durationMinutes = duration,
+                clientId = body?.ClientId,
+                packageId = package?.Id,
+                package = package?.Name,
+                packagePrice = package?.PriceMinorUnits
+            });
         await db.SaveChangesAsync(ct);
 
         return Results.Accepted($"/api/v1/devices/{deviceId}/sessions", session.ToView());
     }
+
+    private static string ClockText(int minute) => $"{minute / 60:00}:{minute % 60:00}";
 
     /// <summary>Идемпотентно: повторный запрос завершения не создаёт второй EndSession (ТЗ §5.1).</summary>
     private static async Task<IResult> EndSession(string sessionId, HttpContext http, LocationScope scope, ClubOsDbContext db,

@@ -34,6 +34,30 @@ public sealed class Zone
     public long PricePerHourMinorUnits { get; set; }
     public RoundingRule Rounding { get; set; } = RoundingRule.CeilingPerMinute;
     public int RuleVersion { get; set; } = 1;
+
+    /// <summary>Периоды цены (jsonb, список <see cref="PricePeriod"/>); null — одна цена.</summary>
+    public string? PeriodsJson { get; set; }
+}
+
+/// <summary>
+/// Пакет зоны: N минут за фиксированную цену («3 часа», «Ночь»). Сессия по пакету получает лимит N минут;
+/// ранний конец — цена пакета, продление — по тарифу зоны. Неактивный пакет нельзя выбрать, история сохраняется.
+/// </summary>
+public sealed class TariffPackage
+{
+    public required string Id { get; set; }
+    public required string TenantId { get; set; }
+    public required string LocationId { get; set; }
+    public required string ZoneId { get; set; }
+    public required string Name { get; set; }
+    public int DurationMinutes { get; set; }
+    public long PriceMinorUnits { get; set; }
+
+    /// <summary>Окно начала по местному времени (минуты от полуночи, через полночь — начало больше конца).</summary>
+    public int? AvailableFromMinute { get; set; }
+    public int? AvailableToMinute { get; set; }
+    public bool IsActive { get; set; } = true;
+    public DateTimeOffset CreatedAtUtc { get; set; }
 }
 
 public static class Roles
@@ -303,6 +327,14 @@ public sealed class Session
 
     /// <summary>Клиент, для которого начата сессия (оплата с его баланса по умолчанию).</summary>
     public string? ClientId { get; set; }
+
+    // Снимок тарифа: периоды, смещение местного времени и пакет (ТЗ §12.4).
+    public string? PeriodsJson { get; set; }
+    public int UtcOffsetMinutes { get; set; }
+    public string? PackageId { get; set; }
+    public string? PackageName { get; set; }
+    public int? PackageMinutes { get; set; }
+    public long? PackagePriceMinorUnits { get; set; }
 }
 
 /// <summary>
