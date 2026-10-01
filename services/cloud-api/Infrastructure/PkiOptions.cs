@@ -13,5 +13,13 @@ public sealed class PkiOptions
     /// </summary>
     public bool RequireEdgeRequestBinding { get; set; } = true;
 
+    /// <summary>
+    /// Срок действия CRL (nextUpdate). Edge обновляет список каждые несколько минут; просроченный список Edge
+    /// продолжает применять (клуб без интернета не должен терять проверку отзыва), но пишет предупреждение.
+    /// </summary>
+    public int CrlDays { get; set; } = 7;
+
+    public TimeSpan CrlValidity => TimeSpan.FromDays(Math.Clamp(CrlDays, 1, 30));
+
     public TimeSpan CertificateValidity => TimeSpan.FromDays(Math.Clamp(CertificateDays, 1, 397));
 }

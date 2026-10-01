@@ -11,7 +11,7 @@ namespace ClubOS.CloudApi.Api;
 /// <summary>
 /// Удаление (отзыв) устройств и отключение Edge (D-011). Запись остаётся ради истории, но сертификат больше
 /// не принимается: Edge забывает устройство (команда + конфигурация), Cloud отклоняет отключённый Edge.
-/// Вернуть можно только новой регистрацией по одноразовому токену.
+/// Вернуть можно только новой регистрацией по одноразовому токену. Сертификаты субъекта попадают в CRL (D-002).
 /// </summary>
 public static class RevocationEndpoints
 {
@@ -28,10 +28,17 @@ public static class RevocationEndpoints
             fingerprintSha256 = ca.FingerprintSha256,
             expiresAtUtc = new DateTimeOffset(ca.Certificate.NotAfter.ToUniversalTime())
         })).WithTags("Edge").RequirePermission(Permissions.EnrollmentManage);
+
+        // Список отзыва (D-002): анонимно, как принято для CRL; целостность — подпись CA, Edge её проверяет.
+        app.MapGet("/api/v1/pki/crl", async (CertificateLedger ledger, HttpContext http, CancellationToken ct) =>
+        {
+            http.Response.Headers.CacheControl = "public, max-age=30";
+            return Results.Bytes(await ledger.GetCrlAsync(ct), "application/pkix-crl", "clubos.crl");
+        }).WithTags("Edge").AllowAnonymous();
     }
 
     private static async Task<IResult> RevokeDevice(string deviceId, HttpContext http, LocationScope scope,
-        ClubOsDbContext db, AuditWriter audit, TimeProvider time, CancellationToken ct)
+        ClubOsDbContext db, AuditWriter audit, CertificateLedger ledger, TimeProvider time, CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
         var device = await db.Devices.SingleOrDefaultAsync(
@@ -59,14 +66,16 @@ public static class RevocationEndpoints
             ExpiresAtUtc = now.AddDays(30), // отзыв не должен потеряться, пока Edge offline
             RevokeDevice = new RevokeDeviceCommand { DeviceId = deviceId, Actor = staff.Actor }
         });
+        var certificates = await ledger.RevokeSubjectAsync(db, staff.TenantId, deviceId, [device.CertificatePem], ct);
         audit.Write(staff.TenantId, device.LocationId, staff.Actor, "device.revoked", $"device:{deviceId}",
-            AuditResults.Success, details: new { device.DisplayName, device.Hostname });
+            AuditResults.Success, details: new { device.DisplayName, device.Hostname, certificatesRevoked = certificates });
         await db.SaveChangesAsync(ct);
+        ledger.Invalidate();
         return Results.NoContent();
     }
 
     private static async Task<IResult> RevokeEdge(string edgeId, HttpContext http, LocationScope scope, ClubOsDbContext db,
-        AuditWriter audit, TimeProvider time, CancellationToken ct)
+        AuditWriter audit, CertificateLedger ledger, TimeProvider time, CancellationToken ct)
     {
         var staff = StaffContext.From(http.User);
         var edge = await db.Edges.SingleOrDefaultAsync(
@@ -78,9 +87,13 @@ public static class RevocationEndpoints
 
         edge.RevokedAtUtc = time.GetUtcNow();
         edge.RevokedBy = staff.Actor;
+        // Клиентский сертификат Edge, прежний ключ и серверные TLS-сертификаты API агентов (тот же CN).
+        var certificates = await ledger.RevokeSubjectAsync(db, staff.TenantId, edgeId,
+            [edge.CertificatePem, edge.PreviousCertificatePem], ct);
         audit.Write(staff.TenantId, edge.LocationId, staff.Actor, "edge.revoked", $"edge:{edgeId}", AuditResults.Success,
-            details: new { edge.Name, edge.PendingOutboxEvents });
+            details: new { edge.Name, edge.PendingOutboxEvents, certificatesRevoked = certificates });
         await db.SaveChangesAsync(ct);
+        ledger.Invalidate();
         return Results.NoContent();
     }
 }

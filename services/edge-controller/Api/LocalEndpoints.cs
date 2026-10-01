@@ -61,18 +61,23 @@ public static class LocalEndpoints
         return await next(context);
     }
 
-    private static IResult Status(EdgeIdentityStore identity, EdgeStore store, CloudClient cloud) => Results.Ok(new
-    {
-        enrolled = identity.IsEnrolled,
-        edgeId = identity.Current?.EdgeId,
-        locationId = identity.Current?.LocationId,
-        locationName = store.GetKv("location_name"),
-        cloudReachable = cloud.IsReachable,
-        lastCloudContactUtc = cloud.LastSuccessUtc,
-        pendingOutboxEvents = store.CountPendingEvents(),
-        activeSessions = store.GetActiveSessions().Count,
-        devices = store.ListDevices().Count
-    });
+    private static IResult Status(EdgeIdentityStore identity, EdgeStore store, CloudClient cloud, EdgeCrlStore crl,
+        IOptions<EdgeOptions> options) => Results.Ok(new
+        {
+            enrolled = identity.IsEnrolled,
+            edgeId = identity.Current?.EdgeId,
+            locationId = identity.Current?.LocationId,
+            locationName = store.GetKv("location_name"),
+            cloudReachable = cloud.IsReachable,
+            lastCloudContactUtc = cloud.LastSuccessUtc,
+            pendingOutboxEvents = store.CountPendingEvents(),
+            activeSessions = store.GetActiveSessions().Count,
+            devices = store.ListDevices().Count,
+            requireAgentClientCertificate = options.Value.RequireAgentClientCertificate,
+            crl = crl.Current is { } list
+            ? new { number = list.Number.ToString(), list.ThisUpdateUtc, list.NextUpdateUtc, revoked = list.RevokedSerials.Count }
+            : null
+        });
 
     private static async Task<IResult> StartSession(LocalStartSessionRequest request, EdgeStore store, CancellationToken ct)
     {

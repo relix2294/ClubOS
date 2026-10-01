@@ -20,6 +20,7 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
     public DbSet<StaffLocationAccess> StaffLocationAccess => Set<StaffLocationAccess>();
     public DbSet<MfaChallenge> MfaChallenges => Set<MfaChallenge>();
     public DbSet<Edge> Edges => Set<Edge>();
+    public DbSet<CertificateRecord> Certificates => Set<CertificateRecord>();
     public DbSet<EnrollmentToken> EnrollmentTokens => Set<EnrollmentToken>();
     public DbSet<Device> Devices => Set<Device>();
     public DbSet<DeviceCommand> DeviceCommands => Set<DeviceCommand>();
@@ -176,6 +177,17 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.LocationId);
             e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<CertificateRecord>(e =>
+        {
+            e.ToTable("certificates");
+            e.HasKey(x => x.Serial);
+            e.Property(x => x.Serial).HasMaxLength(64);
+            e.Property(x => x.SubjectId).HasMaxLength(64);
+            e.Property(x => x.Role).HasMaxLength(32);
+            e.HasIndex(x => x.SubjectId);
+            e.HasIndex(x => x.ExpiresAtUtc).HasFilter("\"RevokedAtUtc\" IS NOT NULL").HasDatabaseName("IX_certificates_revoked");
         });
 
         b.Entity<EnrollmentToken>(e =>

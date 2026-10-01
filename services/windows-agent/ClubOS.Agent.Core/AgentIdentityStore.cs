@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using ClubOS.Contracts;
@@ -53,6 +55,46 @@ public sealed class AgentIdentityStore
     public string? TrustedCaPem => Current?.CaCertificatePem ?? BootstrapCaPem;
 
     public DeviceKey Key => _key ?? throw new InvalidOperationException("Устройство ещё не зарегистрировано.");
+
+    private readonly Lock _clientGate = new();
+    private (string Pem, DeviceKey Key, X509Certificate2 Certificate)? _client;
+
+    /// <summary>
+    /// Сертификат устройства с закрытым ключом для mTLS к Edge (D-002); null — устройство не зарегистрировано
+    /// (или идёт смена ключа). Новый объект — только при смене сертификата или ключа: по нему EdgeTls понимает,
+    /// что соединения пора открыть заново. Прежний объект не освобождается — им может пользоваться открытое соединение.
+    /// </summary>
+    public X509Certificate2? ClientCertificate()
+    {
+        var identity = Current;
+        var key = _key;
+        if (identity is null || key is null || string.IsNullOrEmpty(identity.CertificatePem))
+        {
+            return null;
+        }
+
+        lock (_clientGate)
+        {
+            if (_client is { } cached && cached.Pem == identity.CertificatePem && ReferenceEquals(cached.Key, key))
+            {
+                return cached.Certificate;
+            }
+
+            try
+            {
+                using var certificate = X509Certificate2.CreateFromPem(identity.CertificatePem);
+                using var withKey = certificate.CopyWithPrivateKey(key.Key);
+                // SChannel (Windows) не принимает эфемерный ключ в клиентской аутентификации — загружаем через PKCS#12.
+                var loaded = X509CertificateLoader.LoadPkcs12(withKey.Export(X509ContentType.Pkcs12), null);
+                _client = (identity.CertificatePem, key, loaded);
+                return loaded;
+            }
+            catch (CryptographicException)
+            {
+                return null; // ключ и сертификат на миг разошлись при ротации — следующий запрос возьмёт новые
+            }
+        }
+    }
 
     public DeviceKey GetOrCreatePendingKey()
     {

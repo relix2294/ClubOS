@@ -195,6 +195,29 @@ public sealed class Edge
     public string? RevokedBy { get; set; }
 }
 
+/// <summary>
+/// Реестр сертификатов, выпущенных CA (D-002): серийный номер, владелец, срок и отзыв. Из него строится CRL —
+/// отозванные и ещё не истёкшие сертификаты.
+/// </summary>
+public sealed class CertificateRecord
+{
+    /// <summary>Серийный номер (hex, верхний регистр).</summary>
+    public required string Serial { get; set; }
+    public required string TenantId { get; set; }
+
+    /// <summary>edge_… или dev_… (CN сертификата).</summary>
+    public required string SubjectId { get; set; }
+
+    /// <summary>edge, edge-server, device (OU сертификата).</summary>
+    public required string Role { get; set; }
+    public DateTimeOffset IssuedAtUtc { get; set; }
+    public DateTimeOffset ExpiresAtUtc { get; set; }
+    public DateTimeOffset? RevokedAtUtc { get; set; }
+
+    /// <summary>Причина по RFC 5280 (X509RevocationReason): 5 — прекращение работы (удалён/отключён).</summary>
+    public int? RevocationReason { get; set; }
+}
+
 public static class EnrollmentKinds
 {
     public const string Edge = "Edge";

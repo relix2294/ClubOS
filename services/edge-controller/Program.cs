@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Server.Kestrel.Https;
-using System.Net.Security;
 using System.Text.Json.Serialization;
 using ClubOS.EdgeController;
 using ClubOS.EdgeController.Api;
@@ -57,14 +56,11 @@ if (builder.Configuration["ASPNETCORE_URLS"] is null && builder.Configuration["u
         if (edgeOptions.AgentTlsPort > 0)
         {
             // Сертификат берётся на каждое рукопожатие: после выпуска/продления перезапуск не нужен.
+            // Клиентский сертификат ПК запрашивается и проверяется в AgentAuth (mTLS, D-002).
             k.ListenAnyIP(edgeOptions.AgentTlsPort, listen => listen.UseHttps(new TlsHandshakeCallbackOptions
             {
-                OnConnection = _ =>
-                {
-                    var context = k.ApplicationServices.GetRequiredService<EdgeTlsCertificateStore>().ServerContext
-                                  ?? throw new InvalidOperationException("TLS-сертификат Edge ещё не выпущен.");
-                    return ValueTask.FromResult(new SslServerAuthenticationOptions { ServerCertificateContext = context });
-                }
+                OnConnection = _ => ValueTask.FromResult(
+                    k.ApplicationServices.GetRequiredService<EdgeTlsCertificateStore>().CreateServerOptions())
             }));
         }
 
@@ -77,6 +73,7 @@ builder.Services.AddSingleton(sp => new EdgeDatabase(sp.GetRequiredService<IOpti
 builder.Services.AddSingleton(sp => new EdgeIdentityStore(sp.GetRequiredService<IOptions<EdgeOptions>>().Value.DataPath));
 builder.Services.AddSingleton<EdgeSignals>();
 builder.Services.AddSingleton(sp => new EdgeTlsCertificateStore(sp.GetRequiredService<IOptions<EdgeOptions>>().Value.DataPath));
+builder.Services.AddSingleton(sp => new EdgeCrlStore(sp.GetRequiredService<IOptions<EdgeOptions>>().Value.DataPath));
 builder.Services.AddSingleton<EdgeStore>();
 builder.Services.AddSingleton<AgentAuth>();
 builder.Services.AddSingleton<DisklessAuthority>();
@@ -101,6 +98,8 @@ builder.Services.AddSingleton<CertificateRenewalWorker>();
 builder.Services.AddSingleton<EdgeTlsWorker>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<EdgeTlsWorker>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<CertificateRenewalWorker>());
+builder.Services.AddSingleton<CrlWorker>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<CrlWorker>());
 
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddProblemDetails();

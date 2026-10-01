@@ -1,5 +1,5 @@
 using System.Net;
-using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using ClubOS.Agent.Core;
 using ClubOS.EdgeController.Storage;
 using Microsoft.AspNetCore.Builder;
@@ -21,15 +21,15 @@ public class EdgeTlsTests(CloudFixture cloud)
     private static async Task<(WebApplication App, int Port)> StartTlsServerAsync(EdgeTlsCertificateStore store, string caPem)
     {
         var builder = WebApplication.CreateSlimBuilder();
+        // Те же параметры рукопожатия, что у Edge (Program.cs): клиентский сертификат запрашивается.
         builder.WebHost.ConfigureKestrel(k => k.Listen(IPAddress.Any, 0, listen => listen.UseHttps(new TlsHandshakeCallbackOptions
         {
-            OnConnection = _ => ValueTask.FromResult(new SslServerAuthenticationOptions
-            {
-                ServerCertificateContext = store.ServerContext ?? throw new InvalidOperationException("нет сертификата")
-            })
+            OnConnection = _ => ValueTask.FromResult(store.CreateServerOptions())
         })));
         var app = builder.Build();
         app.MapGet("/ping", () => "pong");
+        app.MapGet("/whoami", (HttpContext http) =>
+            http.Connection.ClientCertificate?.GetNameInfo(System.Security.Cryptography.X509Certificates.X509NameType.SimpleName, false) ?? "none");
         app.MapGet("/agent/v1/ca", () => Results.Ok(new { caCertificatePem = caPem })); // как у Edge
         await app.StartAsync();
         var port = new Uri(app.Urls.First()).Port;
@@ -81,5 +81,46 @@ public class EdgeTlsTests(CloudFixture cloud)
         // Системное хранилище (обычный HttpClient) сертификату Edge не доверяет — только dev CA ClubOS.
         using var plain = new HttpClient();
         await Assert.ThrowsAsync<HttpRequestException>(() => plain.GetStringAsync($"https://127.0.0.1:{port}/ping"));
+    }
+
+    /// <summary>
+    /// mTLS (D-002) на настоящем рукопожатии: агент предъявляет сертификат устройства, Kestrel передаёт его в
+    /// приложение; после продления (новый ключ и сертификат) агент открывает новое соединение с новым сертификатом.
+    /// </summary>
+    [Fact]
+    public async Task Agent_presents_device_certificate_and_switches_it_after_renewal()
+    {
+        var owner = await cloud.LoginAsync();
+        var location = await cloud.CreateLocationAsync();
+        await using var edge = new EdgeHost(cloud, AuthAndTenancyTests.TempPath(), await owner.EdgeTokenAsync(location));
+        await using var agent = new AgentHost(edge, AuthAndTenancyTests.TempPath(), await owner.DeviceTokenAsync(location),
+            renewBeforeDays: 100);
+        var deviceId = await Wait.ForAsync(async () => agent.Runtime.DeviceId, what: "enrollment");
+        var store = edge.Service<EdgeTlsCertificateStore>();
+        await Wait.UntilAsync(async () => store.Certificate is not null, what: "TLS-сертификат Edge");
+        var caPem = edge.Service<EdgeIdentityStore>().Current!.CaCertificatePem;
+        var (app, port) = await StartTlsServerAsync(store, caPem);
+        await using var _ = app;
+
+        X509Certificate2? presented = null;
+        using var http = new HttpClient(new ClientCertificateHandler(() => agent.Identity.ClientCertificate(),
+            certificate =>
+            {
+                presented = certificate;
+                return EdgeTls.CreateHandler(() => caPem, null, TimeProvider.System, NullLogger.Instance, certificate);
+            }));
+        Assert.Equal(deviceId, await http.GetStringAsync($"https://127.0.0.1:{port}/whoami"));
+        var first = presented!;
+        Assert.True(first.HasPrivateKey);
+        Assert.Equal(first.SerialNumber, X509Certificate2.CreateFromPem(agent.Identity.Current!.CertificatePem).SerialNumber);
+
+        // Продление с ротацией ключа: следующий запрос идёт по новому соединению с новым сертификатом.
+        Assert.True(await agent.Runtime.RenewCertificateIfDueAsync(CancellationToken.None));
+        Assert.Equal(deviceId, await http.GetStringAsync($"https://127.0.0.1:{port}/whoami"));
+        Assert.NotEqual(first.SerialNumber, presented!.SerialNumber);
+        Assert.Equal(presented.SerialNumber, X509Certificate2.CreateFromPem(agent.Identity.Current!.CertificatePem).SerialNumber);
+
+        // Агент без сертификата (до регистрации) подключается — сертификат проверяет AgentAuth, а не TLS.
+        Assert.Equal("none", await Client(caPem, null).GetStringAsync($"https://127.0.0.1:{port}/whoami"));
     }
 }

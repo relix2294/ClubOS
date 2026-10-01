@@ -31,6 +31,17 @@ public sealed class EdgeOptions
     /// <summary>Дополнительные имена/IP Edge для TLS-сертификата через запятую (DNS-имя сервера клуба, внешний IP).</summary>
     public string TlsHostNames { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Требовать клиентский сертификат устройства (mTLS, D-002) для API агентов. false — сертификат проверяется,
+    /// если агент его предъявил (агенты M2+ предъявляют всегда); true — запросы без сертификата (в том числе по
+    /// HTTP-порту) отклоняются. Регистрация ПК, загрузка бездискового ПК и касса /cash работают без сертификата.
+    /// Включайте после обновления всех агентов клуба.
+    /// </summary>
+    public bool RequireAgentClientCertificate { get; set; }
+
+    /// <summary>Как часто забирать список отзыва (CRL) у Cloud, секунд.</summary>
+    public int CrlRefreshSeconds { get; set; } = 300;
+
     /// <summary>Порт локального admin API (только loopback) для edge-cli.</summary>
     public int LocalApiPort { get; set; } = 7071;
 

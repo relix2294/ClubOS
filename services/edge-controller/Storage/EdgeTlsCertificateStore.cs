@@ -52,6 +52,18 @@ public sealed class EdgeTlsCertificateStore
         }
     }
 
+    /// <summary>
+    /// Параметры TLS-рукопожатия API агентов. Клиентский сертификат запрашивается, но не требуется на уровне TLS:
+    /// его проверяет AgentAuth (цепочка, CN = deviceId из подписанного токена, CRL) — так регистрация ПК, загрузка
+    /// бездискового ПК и касса /cash работают без сертификата, а режим «только с сертификатом» включается флагом.
+    /// </summary>
+    public SslServerAuthenticationOptions CreateServerOptions() => new()
+    {
+        ServerCertificateContext = ServerContext ?? throw new InvalidOperationException("TLS-сертификат Edge ещё не выпущен."),
+        ClientCertificateRequired = true,
+        RemoteCertificateValidationCallback = (_, _, _, _) => true
+    };
+
     public ECDsa GetOrCreateKey()
     {
         if (File.Exists(_keyPath))

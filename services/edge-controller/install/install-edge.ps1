@@ -12,6 +12,10 @@
 
 .EXAMPLE
   .\install-edge.ps1 -CloudUrl https://clubos.example.tj -EnrollmentToken <токен из Admin Web>
+
+.EXAMPLE
+  .\install-edge.ps1 -CloudUrl https://clubos.example.tj -DisableAgentHttp -RequireClientCertificate
+  Все ПК обновлены: только HTTPS и только с сертификатом устройства (mTLS).
 #>
 [CmdletBinding()]
 param(
@@ -24,6 +28,8 @@ param(
     [string] $TlsHostNames = '',
     # Закрыть открытый HTTP-порт агентов — после перевода всех ПК на https://…:7443.
     [switch] $DisableAgentHttp,
+    # mTLS (D-002): принимать запросы агентов только с сертификатом устройства — после обновления всех ПК до M2.
+    [switch] $RequireClientCertificate,
     [string] $SourceDir = $PSScriptRoot,
     [string] $InstallDir = "$env:ProgramFiles\ClubOS\Edge"
 )
@@ -69,6 +75,7 @@ $edge = @{
     AgentApiPort = $AgentPort
     AgentTlsPort = $AgentTlsPort
     AgentHttpEnabled = -not $DisableAgentHttp
+    RequireAgentClientCertificate = [bool]$RequireClientCertificate
     TlsHostNames = $TlsHostNames
 }
 if (-not $identityExists) { $edge.EnrollmentToken = $EnrollmentToken }

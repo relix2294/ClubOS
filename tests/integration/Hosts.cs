@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Security.Cryptography.X509Certificates;
 using System.Net.Http.Json;
 using System.Text.Json;
 using ClubOS.Agent.Core;
@@ -6,6 +7,7 @@ using ClubOS.Agent.Core.PlayerShell;
 using ClubOS.EdgeController;
 using ClubOS.EdgeController.Api;
 using ClubOS.EdgeController.Cloud;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -27,7 +29,9 @@ public sealed class EdgeHost : IAsyncDisposable
 {
     private readonly WebApplicationFactory<EdgeOptions> _factory;
 
-    public EdgeHost(CloudFixture cloud, string dataPath, string? enrollmentToken, int renewBeforeDays = 30)
+    /// <param name="requireClientCertificate">Edge:RequireAgentClientCertificate — режим «только с сертификатом» (D-002).</param>
+    public EdgeHost(CloudFixture cloud, string dataPath, string? enrollmentToken, int renewBeforeDays = 30,
+        bool requireClientCertificate = false)
     {
         DataPath = dataPath;
         Wan = new WanSwitch(cloud.Factory.Server.CreateHandler());
@@ -42,9 +46,15 @@ public sealed class EdgeHost : IAsyncDisposable
             b.UseSetting("Edge:StatusReportSeconds", "1");
             b.UseSetting("Edge:ConfigRefreshSeconds", "1");
             b.UseSetting("Edge:CommandLongPollSeconds", "2");
+            b.UseSetting("Edge:CrlRefreshSeconds", "1");
+            b.UseSetting("Edge:RequireAgentClientCertificate", requireClientCertificate ? "true" : "false");
             b.UseSetting("Edge:MaxBackoffSeconds", "1");
             b.UseSetting("Edge:CertificateRenewBeforeDays", renewBeforeDays.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            b.ConfigureServices(s => s.AddHttpClient(CloudClient.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Wan));
+            b.ConfigureServices(s =>
+            {
+                s.AddHttpClient(CloudClient.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Wan);
+                s.AddSingleton<IStartupFilter, TestClientCertificate.Filter>();
+            });
         });
         _ = _factory.Server;
     }
@@ -54,6 +64,8 @@ public sealed class EdgeHost : IAsyncDisposable
     public WanSwitch Wan { get; }
 
     public HttpClient CreateClient() => _factory.CreateClient();
+
+    public HttpMessageHandler CreateHandler() => _factory.Server.CreateHandler();
 
     public T Service<T>() where T : notnull => _factory.Services.GetRequiredService<T>();
 
@@ -82,7 +94,9 @@ public sealed class AgentHost : IAsyncDisposable
     private readonly Task _run;
 
     /// <param name="disklessMac">Бездисковый ПК (D-018): MAC вместо токена, identity не хранится между «загрузками».</param>
-    public AgentHost(EdgeHost edge, string dataPath, string? enrollmentToken, int renewBeforeDays = 30, string? disklessMac = null)
+    /// <param name="presentClientCertificate">Предъявлять Edge сертификат устройства, как при mTLS (D-002).</param>
+    public AgentHost(EdgeHost edge, string dataPath, string? enrollmentToken, int renewBeforeDays = 30, string? disklessMac = null,
+        bool presentClientCertificate = false)
     {
         Presenter = new CountingPresenter();
         var identity = new AgentIdentityStore(dataPath, new FileKeyProtector());
@@ -101,7 +115,13 @@ public sealed class AgentHost : IAsyncDisposable
             CertificateRenewBeforeDays = renewBeforeDays,
             CertificateCheckMinutes = 24 * 60 // в тестах продление вызывается явно
         };
-        Runtime = new AgentRuntime(options, identity, new EdgeClient(edge.CreateClient(), identity, TimeProvider.System),
+        var http = presentClientCertificate
+            ? new HttpClient(new TestClientCertificate.Sender(identity.ClientCertificate, edge.CreateHandler()))
+            {
+                BaseAddress = edge.CreateClient().BaseAddress
+            }
+            : edge.CreateClient();
+        Runtime = new AgentRuntime(options, identity, new EdgeClient(http, identity, TimeProvider.System),
             new BasicInventoryProvider(), Presenter,
             new CommandExecutor(Presenter, new ExecutedCommandStore(dataPath), TimeProvider.System, NullLogger<CommandExecutor>.Instance,
                 new SimulatedRemoteActions("PC-IT", TimeProvider.System)),
@@ -125,6 +145,47 @@ public sealed class AgentHost : IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
+        }
+    }
+}
+
+/// <summary>
+/// TestServer без сокета и TLS: клиентский сертификат передаётся заголовком и ставится в
+/// HttpContext.Connection.ClientCertificate, как это делает Kestrel после mTLS-рукопожатия. Только в тестах.
+/// </summary>
+public static class TestClientCertificate
+{
+    public const string Header = "X-Test-Client-Certificate";
+
+    public sealed class Filter : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use((http, nextMiddleware) =>
+            {
+                if (http.Request.Headers.TryGetValue(Header, out var value))
+                {
+                    http.Connection.ClientCertificate = X509CertificateLoader.LoadCertificate(Convert.FromBase64String(value.ToString()));
+                    http.Request.Headers.Remove(Header);
+                    http.Request.Scheme = "https";
+                }
+
+                return nextMiddleware();
+            });
+            next(app);
+        };
+    }
+
+    public sealed class Sender(Func<X509Certificate2?> certificate, HttpMessageHandler inner) : DelegatingHandler(inner)
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (certificate() is { } cert)
+            {
+                request.Headers.Add(Header, Convert.ToBase64String(cert.RawData));
+            }
+
+            return base.SendAsync(request, ct);
         }
     }
 }

@@ -177,6 +177,8 @@ jobs:
       CLUBOS_SEED_OWNER_EMAIL: owner@demo.clubos.local
       CLUBOS_SEED_OWNER_PASSWORD: ci-owner-password
       CLUBOS_DEV_EDGE_ENROLLMENT_TOKEN: ci0edge0enrollment0token0000000000000000
+      # Симуляторы ходят к Edge по mTLS: запрос без сертификата устройства отклоняется (D-002).
+      CLUBOS_EDGE_REQUIRE_CLIENT_CERT: "true"
     steps:
       - uses: actions/checkout@v4
       - name: Validate VPS compose and Caddyfile

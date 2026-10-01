@@ -14,14 +14,21 @@ namespace ClubOS.Agent.Core;
 /// </summary>
 public static class EdgeTls
 {
-    public static SocketsHttpHandler CreateHandler(AgentOptions options, AgentIdentityStore identity, TimeProvider time,
+    public static HttpMessageHandler CreateHandler(AgentOptions options, AgentIdentityStore identity, TimeProvider time,
         ILogger logger) =>
-        CreateHandler(() => identity.TrustedCaPem, options.EdgeCaFingerprint, time, logger);
+        new ClientCertificateHandler(identity.ClientCertificate,
+            certificate => CreateHandler(() => identity.TrustedCaPem, options.EdgeCaFingerprint, time, logger, certificate));
 
+    /// <param name="clientCertificate">Сертификат устройства для mTLS (D-002); null — без клиентского сертификата.</param>
     public static SocketsHttpHandler CreateHandler(Func<string?> pinnedCaPem, string? fingerprint, TimeProvider time,
-        ILogger logger)
+        ILogger logger, X509Certificate2? clientCertificate = null)
     {
         var handler = new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(10) };
+        if (clientCertificate is not null)
+        {
+            handler.SslOptions.LocalCertificateSelectionCallback = (_, _, _, _, _) => clientCertificate;
+        }
+
         handler.SslOptions.RemoteCertificateValidationCallback = (_, certificate, chain, errors) =>
         {
             var ok = Validate(certificate, chain, errors, pinnedCaPem(), fingerprint, time.GetUtcNow(), out var reason);
@@ -124,5 +131,56 @@ public static class EdgeTls
         }
 
         return true;
+    }
+}
+
+/// <summary>
+/// Пул соединений с Edge под текущий сертификат устройства: TLS-соединение несёт сертификат, выбранный при
+/// рукопожатии, поэтому после регистрации или продления (новый сертификат/ключ) создаётся новый пул, а прежний
+/// закрывается через минуту, когда завершатся начатые запросы (long-poll команд до 40 секунд).
+/// </summary>
+public sealed class ClientCertificateHandler(Func<X509Certificate2?> current, Func<X509Certificate2?, HttpMessageHandler> factory)
+    : HttpMessageHandler
+{
+    private static readonly TimeSpan DrainTime = TimeSpan.FromMinutes(1);
+    private readonly Lock _gate = new();
+    private (X509Certificate2? Certificate, HttpMessageInvoker Invoker)? _active;
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+        Invoker().SendAsync(request, cancellationToken);
+
+    private HttpMessageInvoker Invoker()
+    {
+        var certificate = current();
+        lock (_gate)
+        {
+            if (_active is { } active && ReferenceEquals(active.Certificate, certificate))
+            {
+                return active.Invoker;
+            }
+
+            var invoker = new HttpMessageInvoker(factory(certificate), disposeHandler: true);
+            if (_active is { } previous)
+            {
+                _ = Task.Delay(DrainTime).ContinueWith(_ => previous.Invoker.Dispose(), TaskScheduler.Default);
+            }
+
+            _active = (certificate, invoker);
+            return invoker;
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            lock (_gate)
+            {
+                _active?.Invoker.Dispose();
+                _active = null;
+            }
+        }
+
+        base.Dispose(disposing);
     }
 }

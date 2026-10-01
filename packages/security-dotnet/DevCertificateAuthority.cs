@@ -105,7 +105,7 @@ public sealed class DevCertificateAuthority : IDisposable
         }
 
         var serial = RandomNumberGenerator.GetBytes(16);
-        serial[0] &= 0x7F;
+        serial[0] = (byte)((serial[0] & 0x7F) | 0x40); // положительный и без ведущего нуля — один вид в DER и CRL
         var generator = X509SignatureGenerator.CreateForECDsa(_key);
         using var cert = request.Create(Certificate.SubjectName, generator, now.AddMinutes(-5), notAfter, serial);
         return new IssuedCertificate(cert.ExportCertificatePem(), new DateTimeOffset(cert.NotAfter.ToUniversalTime()));
@@ -160,10 +160,48 @@ public sealed class DevCertificateAuthority : IDisposable
         var now = _time.GetUtcNow();
         var notAfter = now.Add(validity) > Certificate.NotAfter ? Certificate.NotAfter : now.Add(validity);
         var serial = RandomNumberGenerator.GetBytes(16);
-        serial[0] &= 0x7F;
+        serial[0] = (byte)((serial[0] & 0x7F) | 0x40); // положительный и без ведущего нуля — один вид в DER и CRL
         var generator = X509SignatureGenerator.CreateForECDsa(_key);
         using var cert = request.Create(Certificate.SubjectName, generator, now.AddMinutes(-5), notAfter, serial);
         return new IssuedCertificate(cert.ExportCertificatePem(), new DateTimeOffset(cert.NotAfter.ToUniversalTime()));
+    }
+
+    /// <summary>
+    /// Список отзыва (CRL, RFC 5280), подписанный CA: серийные номера отозванных и ещё не истёкших сертификатов.
+    /// Номер CRL растёт со временем выпуска — Edge не примет более старый список вместо свежего.
+    /// </summary>
+    public byte[] CreateCrl(IEnumerable<RevokedSerial> revoked, TimeSpan lifetime)
+    {
+        var now = _time.GetUtcNow();
+        var builder = new CertificateRevocationListBuilder();
+        foreach (var entry in revoked)
+        {
+            builder.AddEntry(Convert.FromHexString(NormalizeSerial(entry.SerialHex)), entry.RevokedAtUtc, entry.Reason);
+        }
+
+        var number = new System.Numerics.BigInteger(now.ToUnixTimeMilliseconds());
+        var generator = X509SignatureGenerator.CreateForECDsa(_key);
+        return builder.Build(Certificate.SubjectName, generator, number, now.Add(lifetime), HashAlgorithmName.SHA256,
+            X509AuthorityKeyIdentifierExtension.CreateFromCertificate(Certificate, true, false), now.AddMinutes(-5));
+    }
+
+    /// <summary>Серийный номер сертификата (hex, верхний регистр, минимальная запись — как в CRL).</summary>
+    public static string SerialOf(string certificatePem)
+    {
+        using var cert = X509Certificate2.CreateFromPem(certificatePem);
+        return NormalizeSerial(cert.SerialNumber);
+    }
+
+    /// <summary>Убирает лишние ведущие нули (DER INTEGER): 00 остаётся только перед байтом ≥ 0x80.</summary>
+    public static string NormalizeSerial(string hex)
+    {
+        var value = hex.ToUpperInvariant();
+        while (value.Length >= 4 && value.StartsWith("00", StringComparison.Ordinal) && value[2] < '8')
+        {
+            value = value[2..];
+        }
+
+        return value;
     }
 
     /// <summary>SHA-256 отпечаток сертификата CA (hex) — агент сверяет с ним цепочку TLS Edge при первом контакте.</summary>
@@ -194,7 +232,12 @@ public sealed class DevCertificateAuthority : IDisposable
     }
 }
 
-public sealed record IssuedCertificate(string CertificatePem, DateTimeOffset ExpiresAtUtc);
+public sealed record IssuedCertificate(string CertificatePem, DateTimeOffset ExpiresAtUtc)
+{
+    public string SerialHex => DevCertificateAuthority.SerialOf(CertificatePem);
+}
+
+public sealed record RevokedSerial(string SerialHex, DateTimeOffset RevokedAtUtc, X509RevocationReason Reason);
 
 public sealed class InvalidCsrException(string message, Exception? inner = null) : Exception(message, inner);
 
@@ -211,14 +254,21 @@ public static class EdgeTlsTrust
     /// true — сертификат выпущен CA <paramref name="ca"/> и предназначен для сервера (serverAuth). Проверку имени
     /// делает TLS-стек (SslPolicyErrors.RemoteCertificateNameMismatch); здесь — только цепочка.
     /// </summary>
-    public static bool IsIssuedBy(X509Certificate2 certificate, X509Certificate2 ca, DateTimeOffset now)
+    public static bool IsIssuedBy(X509Certificate2 certificate, X509Certificate2 ca, DateTimeOffset now) =>
+        IsIssuedBy(certificate, ca, now, "1.3.6.1.5.5.7.3.1");
+
+    /// <summary>Клиентский сертификат устройства (clientAuth) выпущен CA <paramref name="ca"/> и действует (mTLS, D-002).</summary>
+    public static bool IsClientIssuedBy(X509Certificate2 certificate, X509Certificate2 ca, DateTimeOffset now) =>
+        IsIssuedBy(certificate, ca, now, "1.3.6.1.5.5.7.3.2");
+
+    private static bool IsIssuedBy(X509Certificate2 certificate, X509Certificate2 ca, DateTimeOffset now, string purpose)
     {
         using var chain = new X509Chain();
         chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
         chain.ChainPolicy.CustomTrustStore.Add(ca);
         chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
         chain.ChainPolicy.VerificationTime = now.UtcDateTime;
-        chain.ChainPolicy.ApplicationPolicy.Add(new Oid("1.3.6.1.5.5.7.3.1"));
+        chain.ChainPolicy.ApplicationPolicy.Add(new Oid(purpose));
         return chain.Build(certificate) &&
                chain.ChainElements[^1].Certificate.RawData.AsSpan().SequenceEqual(ca.RawData);
     }

@@ -58,6 +58,7 @@ public static class EdgeEndpoints
 
         var now = time.GetUtcNow();
         token.UsedBySubjectId = edgeId;
+        CertificateLedger.Record(db, token.TenantId, edgeId, DevCertificateAuthority.RoleEdge, cert, now);
         db.Edges.Add(new Domain.Edge
         {
             Id = edgeId,
@@ -136,7 +137,8 @@ public static class EdgeEndpoints
 
     /// <summary>TLS-сертификат API агентов для Edge (D-007): SAN — имена и адреса Edge в LAN клуба.</summary>
     private static async Task<IResult> IssueServerCertificate(EdgeServerCertificateRequest request, HttpContext http,
-        DevCertificateAuthority ca, IOptions<PkiOptions> pki, AuditWriter audit, ClubOsDbContext db, CancellationToken ct)
+        DevCertificateAuthority ca, IOptions<PkiOptions> pki, AuditWriter audit, ClubOsDbContext db, TimeProvider time,
+        CancellationToken ct)
     {
         var edge = EdgeContext.From(http.User);
         var dns = (request.DnsNames ?? []).Select(x => x.Trim().ToLowerInvariant()).Where(x => x.Length > 0).Distinct().ToList();
@@ -168,6 +170,7 @@ public static class EdgeEndpoints
             return Problems.Validation("invalid_csr", ex.Message);
         }
 
+        CertificateLedger.Record(db, edge.TenantId, edge.EdgeId, DevCertificateAuthority.RoleEdgeServer, cert, time.GetUtcNow());
         audit.Write(edge.TenantId, edge.LocationId, edge.Actor, "edge.tls_certificate_issued", $"edge:{edge.EdgeId}",
             AuditResults.Success, details: new { dns, ips = ips.Select(x => x.ToString()), cert.ExpiresAtUtc });
         await db.SaveChangesAsync(ct);
@@ -180,7 +183,7 @@ public static class EdgeEndpoints
 
     /// <summary>Продление сертификата Edge: запрос подписан текущим (ещё действующим) ключом Edge.</summary>
     private static async Task<IResult> RenewEdge(CertificateRenewRequest request, HttpContext http, ClubOsDbContext db,
-        DevCertificateAuthority ca, IOptions<PkiOptions> pki, AuditWriter audit, CancellationToken ct)
+        DevCertificateAuthority ca, IOptions<PkiOptions> pki, AuditWriter audit, TimeProvider time, CancellationToken ct)
     {
         var context = EdgeContext.From(http.User);
         var edge = await db.Edges.SingleAsync(x => x.Id == context.EdgeId, ct);
@@ -206,6 +209,7 @@ public static class EdgeEndpoints
 
         edge.CertificatePem = cert.CertificatePem;
         edge.CertificateExpiresAtUtc = cert.ExpiresAtUtc;
+        CertificateLedger.Record(db, edge.TenantId, edge.Id, DevCertificateAuthority.RoleEdge, cert, time.GetUtcNow());
         audit.Write(edge.TenantId, edge.LocationId, context.Actor, "edge.certificate_renewed", $"edge:{edge.Id}",
             AuditResults.Success, details: new { previous, cert.ExpiresAtUtc, keyRotated = rotated });
         await db.SaveChangesAsync(ct);
@@ -221,7 +225,8 @@ public static class EdgeEndpoints
     /// Только устройство локации этого Edge и только не отозванное.
     /// </summary>
     private static async Task<IResult> RenewDevice(string deviceId, CertificateRenewRequest request, HttpContext http,
-        ClubOsDbContext db, DevCertificateAuthority ca, IOptions<PkiOptions> pki, AuditWriter audit, CancellationToken ct)
+        ClubOsDbContext db, DevCertificateAuthority ca, IOptions<PkiOptions> pki, AuditWriter audit, TimeProvider time,
+        CancellationToken ct)
     {
         var edge = EdgeContext.From(http.User);
         var device = await db.Devices.SingleOrDefaultAsync(x => x.Id == deviceId && x.TenantId == edge.TenantId &&
@@ -245,6 +250,7 @@ public static class EdgeEndpoints
         var previous = device.CertificateExpiresAtUtc;
         device.CertificatePem = cert.CertificatePem;
         device.CertificateExpiresAtUtc = cert.ExpiresAtUtc;
+        CertificateLedger.Record(db, edge.TenantId, device.Id, DevCertificateAuthority.RoleDevice, cert, time.GetUtcNow());
         audit.Write(edge.TenantId, edge.LocationId, edge.Actor, "device.certificate_renewed", $"device:{device.Id}",
             AuditResults.Success, details: new { previous, cert.ExpiresAtUtc });
         await db.SaveChangesAsync(ct);
@@ -438,6 +444,7 @@ public static class EdgeEndpoints
         var inv = request.Inventory;
         var now = time.GetUtcNow();
         token.UsedBySubjectId = deviceId;
+        CertificateLedger.Record(db, edge.TenantId, deviceId, DevCertificateAuthority.RoleDevice, cert, now);
         db.Devices.Add(new Device
         {
             Id = deviceId,

@@ -28,6 +28,7 @@ Tenant берётся только из JWT. Чужие объекты возв�
 | POST | `/api/v1/diskless-candidates/{id}/approve` | `enrollment.manage`: `{displayName, zoneId}` → устройство с `hardwareId` (MAC); Edge получает `RefreshConfig` и выдаёт ПК сертификат при следующей попытке загрузки (≤ 10 с) |
 | POST | `/api/v1/diskless-candidates/{id}/dismiss` | `enrollment.manage`: убрать из списка (ПК появится снова при следующей загрузке) |
 | GET | `/api/v1/pki/ca` | `enrollment.manage`: `{fingerprintSha256, expiresAtUtc}` — отпечаток CA организации для `install-agent.ps1 -EdgeCaFingerprint` |
+| GET | `/api/v1/pki/crl` | без входа: список отзыва CA (RFC 5280, DER, `application/pkix-crl`, кэш 30 с) — сертификаты удалённых ПК и отключённых Edge, ещё не истёкшие. Подпись CA проверяет получатель (Edge) |
 | GET | `/api/v1/live` | `devices.view`: поток Server-Sent Events. События: `ready`; `change` с `{topic, locationId, deviceId, id}`, где topic — `devices`/`commands`/`sessions`/`audit`/`edges`/`staff` (аудит — только с `audit.view`, персонал — только с `staff.manage`); `resync` — клиент отстал, перечитать всё; `ping` раз в 15 с; `reauth` — токен истёк или доступ отозван, поток закрывается. Только tenant сотрудника. Admin Web подключается через BFF `/api/live` |
 | POST | `/api/v1/sessions/{sessionId}/extend` | `{minutes: 1..720}` — продление сессии с лимитом (суммарно не больше 24 ч). **202**; новое `plannedEndAtUtc` приходит событием `SessionExtended` от Edge. **409** — сессия не идёт или без лимита |
 | GET | `/api/v1/audit?locationId=&target=device:{id}&limit=` | журнал аудита (новые сверху) |
@@ -212,6 +213,11 @@ HTTPS 7443: сертификат Edge выпускает dev CA организа
 заранее). Агент доверяет только CA с отпечатком SHA-256 из Admin Web (`GET /api/v1/pki/ca`). HTTP 7070 — переходный,
 закрывается `Edge:AgentHttpEnabled=false`. Токен привязан к методу, пути и телу, как у Edge→Cloud;
 обязательность привязки на Edge — `Edge:RequireAgentRequestBinding`.
+
+mTLS (D-002): на 7443 агент предъявляет сертификат устройства. Edge проверяет цепочку до CA устройства,
+clientAuth, срок, CN = `kid` токена и CRL. Неверный сертификат даёт 401. При
+`Edge:RequireAgentClientCertificate=true` 401 получает и запрос без сертификата, в том числе по HTTP 7070.
+Регистрация (`/agent/v1/enroll`), загрузка бездискового ПК и `/agent/v1/ca` открыты всегда.
 
 | Метод | Путь | Назначение |
 |-------|------|-----------|

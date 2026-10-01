@@ -49,6 +49,7 @@ builder.Services.AddSingleton(sp =>
     return DevCertificateAuthority.LoadOrCreate(path, sp.GetRequiredService<TimeProvider>());
 });
 builder.Services.AddSingleton<CloudTokenValidator>();
+builder.Services.AddSingleton<CertificateLedger>();
 
 builder.Services.ConfigureHttpJsonOptions(o =>
 {

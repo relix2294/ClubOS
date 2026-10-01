@@ -67,6 +67,9 @@ services:
       CLUBOS_Edge__EnrollmentToken: ${CLUBOS_DEV_EDGE_ENROLLMENT_TOKEN:-}
       # Имена для TLS-сертификата API агентов: имя сервиса в compose + IP этой машины для ПК из LAN (через запятую).
       CLUBOS_Edge__TlsHostNames: edge-controller,${CLUBOS_EDGE_TLS_HOSTNAMES:-}
+      # mTLS (D-002): true — API агентов только с сертификатом устройства (HTTP 7070 для агентов тоже закрыт).
+      # Симуляторы предъявляют сертификаты; реальные ПК по http://…:7070 при true не подключатся.
+      CLUBOS_Edge__RequireAgentClientCertificate: ${CLUBOS_EDGE_REQUIRE_CLIENT_CERT:-false}
     volumes:
       - edgedata:/data/edge
     ports:
@@ -123,8 +126,11 @@ services:
     depends_on:
       - edge-controller
     environment:
-      CLUBOS_SIM_EDGE_URL: http://edge-controller:7070
+      # HTTPS + сертификат локального CA Edge (mTLS); отпечаток CA Cloud симулятор берёт из Cloud.
+      CLUBOS_SIM_EDGE_URL: https://edge-controller:7443
       CLUBOS_SIM_CLOUD_URL: http://cloud-api:8080
+      CLUBOS_SIM_EMAIL: ${CLUBOS_SEED_OWNER_EMAIL:-owner@demo.clubos.local}
+      CLUBOS_SIM_PASSWORD: ${CLUBOS_SEED_OWNER_PASSWORD}
       CLUBOS_SIM_DISKLESS: "true"
       CLUBOS_SIM_COUNT: "2"
       CLUBOS_SIM_SHELL: Enforced

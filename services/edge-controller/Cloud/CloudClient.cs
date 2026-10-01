@@ -71,6 +71,22 @@ public sealed class CloudClient(HttpClient http, EdgeIdentityStore identity, Tim
     public Task<DeviceEnrollResponse> EnrollDeviceAsync(DeviceEnrollRequest request, CancellationToken ct) =>
         SendAsync<DeviceEnrollResponse>(HttpMethod.Post, "api/v1/edge/devices/enroll", request, ct);
 
+    /// <summary>Список отзыва CA (D-002): анонимный адрес, целостность — подпись CA (проверяет EdgeCrlStore).</summary>
+    public async Task<byte[]> GetCrlAsync(CancellationToken ct)
+    {
+        using var response = await http.GetAsync("api/v1/pki/crl", HttpCompletionOption.ResponseHeadersRead, ct);
+        await EnsureSuccess(response, ct);
+        if (response.Content.Headers.ContentLength > MaxCrlBytes)
+        {
+            throw new InvalidOperationException("CRL слишком большой.");
+        }
+
+        var der = await response.Content.ReadAsByteArrayAsync(ct);
+        return der.Length > MaxCrlBytes ? throw new InvalidOperationException("CRL слишком большой.") : der;
+    }
+
+    private const int MaxCrlBytes = 16 * 1024 * 1024;
+
     private async Task<T> SendAsync<T>(HttpMethod method, string path, object? body, CancellationToken ct)
     {
         var current = identity.Current ?? throw new InvalidOperationException("Edge не зарегистрирован в Cloud.");

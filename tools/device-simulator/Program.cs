@@ -56,11 +56,6 @@ if (edgeUri.Scheme == Uri.UriSchemeHttps)
     }
 }
 
-using var edgeHttp = new HttpClient(EdgeTls.CreateHandler(() => edgeCa, fingerprint, TimeProvider.System, log))
-{
-    BaseAddress = edgeUri,
-    Timeout = TimeSpan.FromSeconds(40)
-};
 var devices = new List<SimDevice>();
 // Демо-зал на VPS: токены заранее созданы seed'ом из общего секрета — вход сотрудника (с 2FA) не нужен.
 var demoSecret = Environment.GetEnvironmentVariable("CLUBOS_SIM_DEMO_SECRET");
@@ -113,6 +108,13 @@ for (var i = 1; i <= opts.Count; i++)
     };
     var presenter = new ConsolePresenter(loggerFactory.CreateLogger<ConsolePresenter>(), $"SIMULATED {name}");
     var shell = new PlayerShellController(agentOptions, presenter, time, loggerFactory.CreateLogger<PlayerShellController>());
+    // Свой пул соединений у каждого ПК: при HTTPS он предъявляет Edge свой сертификат устройства (mTLS, D-002).
+    var edgeHttp = new HttpClient(new ClientCertificateHandler(identity.ClientCertificate,
+        certificate => EdgeTls.CreateHandler(() => identity.TrustedCaPem ?? edgeCa, fingerprint, time, log, certificate)))
+    {
+        BaseAddress = edgeUri,
+        Timeout = TimeSpan.FromSeconds(40)
+    };
     var runtime = new AgentRuntime(agentOptions, identity, new EdgeClient(edgeHttp, identity, time),
         new SimulatedInventory(name, i), presenter,
         new CommandExecutor(presenter, new ExecutedCommandStore(dataPath), time, loggerFactory.CreateLogger<CommandExecutor>(),
