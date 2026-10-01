@@ -1,25 +1,37 @@
-# ClubOS CA — Milestone 0
+# ClubOS
 
-Первый сквозной вертикальный срез платформы управления компьютерным клубом (ТЗ §25):
+Платформа управления компьютерным клубом:
+- облако: Cloud API и Admin Web;
+- сервер клуба: Edge Controller, который работает и без интернета;
+- агент на игровых ПК: Windows Agent и Player Shell.
 
 ```
-Admin Web ────BFF────▶ Cloud API ◀──исходящее── Edge Controller ◀──LAN── Windows Agent ─pipe─▶ AgentSessionHost (UI)
-(Next.js 16)            (.NET 10,                  (.NET 10, SQLite WAL,    (.NET Windows Service)   (WinForms, сессия
-                         PostgreSQL 18)             outbox/inbox, offline)                            пользователя)
+Admin Web ────BFF────▶ Cloud API ◀──исходящее── Edge Controller ◀──LAN, mTLS── Windows Agent ─pipe─▶ AgentSessionHost (UI)
+(Next.js 16)            (.NET 10,                  (.NET 10, SQLite WAL,          (.NET Windows Service)   (WinForms, сессия
+                         PostgreSQL 18)             outbox/inbox, offline)                                  пользователя)
 ```
 
-Что умеет M0:
-- **Устройства:** enrollment по одноразовому токену с индивидуальным сертификатом dev CA. Инвентаризация,
-  heartbeat раз в 10 с, статусы online/offline, сетка по зонам Standard/VIP.
-- **Команды** `ShowMessage` и `LockTestMode` (overlay без подмены Shell). Полный жизненный цикл
-  `Queued → Delivered → Acknowledged → Succeeded/Failed/Expired`, всё пишется в audit. Повторная доставка не приводит к повторному исполнению.
-- **Сессии:** тариф 120 TJS/час (60 с = 2,00 TJS). Price snapshot фиксируется на старте, итог считает Edge.
-  Сессия продолжается и сохраняется без WAN и переживает рестарт Edge. После восстановления связи — автосинк.
-- **Безопасность:** tenant isolation на backend, JWT + refresh-ротация, httpOnly-cookie BFF, подписанные
-  запросы Edge/Agent (ES256, anti-replay), в git нет секретов.
+**Сдача проекта:** что сделано, как развернуть и принять, что осталось — [`docs/HANDOVER.md`](docs/HANDOVER.md).
 
-Статус, результаты проверок и открытые вопросы: [`docs/STATUS.md`](docs/STATUS.md).
-Упрощения M0: [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md). Архитектура: [`docs/adr/0001-m0-architecture.md`](docs/adr/0001-m0-architecture.md).
+Возможности:
+- **устройства и сессии:**
+  - ПК (обычные и бездисковые) и команды;
+  - снимок экрана, процессы, питание;
+  - тарифы по времени и пакеты;
+  - Player Shell;
+- **работа клуба:** касса и отчёты, клиенты с балансом, бронирования, бар и склад;
+- **без интернета:** сессии и касса продолжают работать на сервере клуба;
+- **персонал:** роли и 2FA, а также полный аудит действий.
+
+Безопасность:
+- изоляция организаций;
+- индивидуальные сертификаты ПК и Edge;
+- подпись каждого запроса;
+- mTLS в LAN клуба и список отзыва;
+- автопродление сертификатов с ротацией ключей.
+
+Статус и тесты — [`docs/STATUS.md`](docs/STATUS.md); отклонения от ТЗ — [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md);
+архитектура — [`docs/adr/0001-m0-architecture.md`](docs/adr/0001-m0-architecture.md).
 
 ## Структура
 
@@ -32,7 +44,7 @@ Admin Web ────BFF────▶ Cloud API ◀──исходящее�
 | `services/edge-controller` | Edge Controller: SQLite WAL, durable outbox, inbox, API агентов, локальный admin API |
 | `services/edge-cli` | `edge-cli`: offline start/end сессий без прямого SQL |
 | `services/windows-agent` | `ClubOS.Agent.Core` (ядро), `ClubOS.Agent.Service` (служба), `ClubOS.Agent.SessionHost` (UI), `install/*.ps1` |
-| `tools/device-simulator` | 5 SIMULATED ПК на ядре реального агента |
+| `tools/device-simulator` | SIMULATED ПК (обычные и бездисковые) на ядре реального агента |
 | `apps/admin-web` | Admin Web (Next.js 16, TypeScript, Tailwind 4, RU) + Playwright e2e |
 | `tests/unit`, `tests/integration` | xUnit; интеграционные — PostgreSQL 18 через Testcontainers |
 | `infrastructure/docker` | Dockerfile'ы; `docker-compose.yml` в корне |
@@ -50,7 +62,7 @@ docker compose --profile simulator up -d device-simulator   # 5 SIMULATED ПК
 
 - Admin Web: http://localhost:3000. Вход: `CLUBOS_SEED_OWNER_EMAIL` / `CLUBOS_SEED_OWNER_PASSWORD` из `.env`.
 - Cloud API и Swagger: http://localhost:5080/swagger.
-- Edge (для агентов): `http://<IP машины>:7070`.
+- Edge (для агентов): `https://<IP машины>:7443` (mTLS) или переходный `http://<IP машины>:7070`.
 
 Seed при первом запуске создаёт Demo Club Group / Dushanbe Pilot (Asia/Dushanbe, TJS), зоны Standard и VIP
 по 120 TJS/час, dev Owner и одноразовый dev-токен Edge (`CLUBOS_DEV_EDGE_ENROLLMENT_TOKEN`).
