@@ -196,10 +196,18 @@ public static class EdgeEndpoints
         }
 
         var previous = edge.CertificateExpiresAtUtc;
+        // Ротация ключа (D-011): CSR на новый ключ. Прежний сертификат принимается, пока Edge не перейдёт на новый.
+        // Запрос подписан прежним ключом (ответ на прошлое продление потерялся) — «прежний» остаётся тем же.
+        var rotated = !DeviceKey.SamePublicKey(edge.CertificatePem, cert.CertificatePem);
+        if (rotated && !context.UsedPreviousKey)
+        {
+            edge.PreviousCertificatePem = edge.CertificatePem;
+        }
+
         edge.CertificatePem = cert.CertificatePem;
         edge.CertificateExpiresAtUtc = cert.ExpiresAtUtc;
         audit.Write(edge.TenantId, edge.LocationId, context.Actor, "edge.certificate_renewed", $"edge:{edge.Id}",
-            AuditResults.Success, details: new { previous, cert.ExpiresAtUtc });
+            AuditResults.Success, details: new { previous, cert.ExpiresAtUtc, keyRotated = rotated });
         await db.SaveChangesAsync(ct);
         return Results.Ok(new CertificateRenewResponse
         {

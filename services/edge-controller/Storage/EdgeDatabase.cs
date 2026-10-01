@@ -118,6 +118,14 @@ public sealed class EdgeDatabase : IDisposable
             Exec(connection, tx, "PRAGMA user_version = 5;");
             tx.Commit();
         }
+
+        if (version < 6)
+        {
+            using var tx = connection.BeginTransaction();
+            Exec(connection, tx, Schema.V6);
+            Exec(connection, tx, "PRAGMA user_version = 6;");
+            tx.Commit();
+        }
     }
 
     public int SchemaVersion => Convert.ToInt32(Read(c => Scalar(c, "PRAGMA user_version;")));
@@ -293,6 +301,14 @@ public sealed class EdgeDatabase : IDisposable
             );
             CREATE INDEX ix_offline_payments_session ON offline_payments(session_id);
             CREATE INDEX ix_offline_payments_time ON offline_payments(recorded_at_utc);
+            """;
+
+        /// <summary>
+        /// M2: ротация ключа устройства при продлении (D-011). previous_certificate_pem — сертификат прежнего ключа,
+        /// принимается, пока агент не подпишет запрос новым ключом.
+        /// </summary>
+        public const string V6 = """
+            ALTER TABLE devices ADD COLUMN previous_certificate_pem TEXT NULL;
             """;
     }
 }

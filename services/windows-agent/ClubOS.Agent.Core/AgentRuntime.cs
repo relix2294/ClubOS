@@ -62,7 +62,8 @@ public sealed class AgentRuntime(
 
     /// <summary>
     /// Продление сертификата устройства через Edge за <see cref="AgentOptions.CertificateRenewBeforeDays"/> дней
-    /// до истечения. Ключ прежний, запрос подписан им же. true — продлён.
+    /// до истечения, с новым ключом (D-011): CSR на новый ключ, запрос подписан текущим. Edge принимает прежний
+    /// ключ, пока агент не подпишет запрос новым, — потеря ответа не отрезает ПК. true — продлён.
     /// </summary>
     public async Task<bool> RenewCertificateIfDueAsync(CancellationToken ct)
     {
@@ -73,16 +74,22 @@ public sealed class AgentRuntime(
             return false;
         }
 
+        var next = identity.CreateNextKey();
         var response = await edge.RenewAsync(new CertificateRenewRequest
         {
-            CertificateSigningRequestPem = identity.Key.CreateSigningRequestPem("clubos-device")
+            CertificateSigningRequestPem = next.CreateSigningRequestPem("clubos-device")
         }, ct);
-        identity.Save(current with
+        if (!next.Matches(response.CertificatePem))
+        {
+            throw new InvalidOperationException("Edge вернул сертификат не на новый ключ.");
+        }
+
+        identity.CommitNextKey(next, current with
         {
             CertificatePem = response.CertificatePem,
             CertificateExpiresAtUtc = response.CertificateExpiresAtUtc
         });
-        logger.LogInformation("Сертификат устройства продлён до {ExpiresAt}", response.CertificateExpiresAtUtc);
+        logger.LogInformation("Сертификат устройства продлён до {ExpiresAt} с новым ключом", response.CertificateExpiresAtUtc);
         return true;
     }
 

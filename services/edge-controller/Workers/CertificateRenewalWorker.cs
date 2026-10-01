@@ -52,16 +52,24 @@ public sealed class CertificateRenewalWorker(
             return false;
         }
 
+        // Ротация ключа (D-011): CSR на новый ключ, запрос подписан текущим. Cloud принимает прежний ключ, пока Edge
+        // не подпишет запрос новым, — потеря ответа не отрезает Edge от Cloud.
+        var next = identity.CreateNextKey();
         var response = await cloud.RenewEdgeAsync(new CertificateRenewRequest
         {
-            CertificateSigningRequestPem = identity.Key.CreateSigningRequestPem("clubos-edge")
+            CertificateSigningRequestPem = next.CreateSigningRequestPem("clubos-edge")
         }, ct);
-        identity.Save(current with
+        if (!next.Matches(response.CertificatePem))
+        {
+            throw new InvalidOperationException("Cloud выпустил сертификат не на новый ключ.");
+        }
+
+        identity.CommitNextKey(next, current with
         {
             CertificatePem = response.CertificatePem,
             CertificateExpiresAtUtc = response.CertificateExpiresAtUtc
         });
-        logger.LogInformation("Сертификат Edge продлён до {ExpiresAt}", response.CertificateExpiresAtUtc);
+        logger.LogInformation("Сертификат Edge продлён до {ExpiresAt} с новым ключом", response.CertificateExpiresAtUtc);
         return true;
     }
 }

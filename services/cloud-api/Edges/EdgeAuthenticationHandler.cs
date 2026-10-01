@@ -63,19 +63,38 @@ public sealed class EdgeAuthenticationHandler(
             return AuthenticateResult.Fail("edge revoked");
         }
 
+        var binding = await ReadBindingAsync();
         var result = validator.Validator.Validate(token, edge.CertificatePem, SignedToken.AudienceCloud,
-            DevCertificateAuthority.RoleEdge, await ReadBindingAsync(), pki.Value.RequireEdgeRequestBinding);
+            DevCertificateAuthority.RoleEdge, binding, pki.Value.RequireEdgeRequestBinding);
+        var usedPrevious = false;
+        // После ротации ключа (D-011) прежний ключ принимается, пока Edge не перешёл на новый.
+        if (!result.Success && result.Error == "bad signature" && edge.PreviousCertificatePem is { } previous)
+        {
+            result = validator.Validator.Validate(token, previous, SignedToken.AudienceCloud, DevCertificateAuthority.RoleEdge,
+                binding, pki.Value.RequireEdgeRequestBinding);
+            usedPrevious = result.Success;
+        }
+
         if (!result.Success)
         {
             Logger.LogWarning("Edge {EdgeId} auth rejected: {Reason}", edgeId, result.Error);
             return AuthenticateResult.Fail(result.Error ?? "invalid edge token");
         }
 
+        if (!usedPrevious && edge.PreviousCertificatePem is not null)
+        {
+            // Edge подписал новым ключом — прежний больше не нужен.
+            await db.Edges.Where(x => x.Id == edge.Id).ExecuteUpdateAsync(u => u.SetProperty(x => x.PreviousCertificatePem, (string?)null),
+                Context.RequestAborted);
+            Logger.LogInformation("Edge {EdgeId} перешёл на новый ключ — прежний сертификат забыт", edgeId);
+        }
+
         var identity = new ClaimsIdentity(
         [
             new Claim(EdgeContext.EdgeIdClaim, edge.Id),
             new Claim(StaffContext.TenantClaim, edge.TenantId),
-            new Claim(EdgeContext.LocationClaim, edge.LocationId)
+            new Claim(EdgeContext.LocationClaim, edge.LocationId),
+            new Claim(EdgeContext.PreviousKeyClaim, usedPrevious ? "1" : "0")
         ], SchemeName);
         return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName));
     }

@@ -1,3 +1,4 @@
+using ClubOS.Security;
 using System.Text.Json;
 using ClubOS.Contracts;
 using Microsoft.Data.Sqlite;
@@ -15,7 +16,8 @@ public sealed record EdgeDevice(
     DateTimeOffset? LastHeartbeatUtc,
     DeviceInventory? Inventory,
     string? HardwareId = null,
-    string? LocalCertificatePem = null)
+    string? LocalCertificatePem = null,
+    string? PreviousCertificatePem = null)
 {
     /// <summary>Бездисковый ПК: аутентифицируется сертификатом локального CA Edge (D-018).</summary>
     public bool Diskless => HardwareId is not null;
@@ -138,9 +140,36 @@ public sealed partial class EdgeStore(EdgeDatabase database, EdgeSignals signals
     }
 
     /// <summary>Новый сертификат устройства после продления (тот же ключ).</summary>
-    public async Task UpdateDeviceCertificateAsync(string deviceId, string certificatePem, CancellationToken ct = default) =>
-        await database.WriteAsync((c, tx) => c.Exec(tx, "UPDATE devices SET certificate_pem = $cert WHERE device_id = $id",
-            ("$cert", certificatePem), ("$id", deviceId)), ct);
+    /// <summary>
+    /// Новый сертификат устройства. Ротация ключа (D-011): сертификат прежнего ключа принимается, пока агент не
+    /// подпишет запрос новым. Запрос продления подписан прежним ключом (ответ потерялся) — «прежний» не меняется.
+    /// </summary>
+    public async Task UpdateDeviceCertificateAsync(string deviceId, string certificatePem, CancellationToken ct = default,
+        bool signedWithPreviousKey = false) =>
+        await database.WriteAsync((c, tx) =>
+        {
+            var current = c.Scalar(tx, "SELECT certificate_pem FROM devices WHERE device_id = $id", ("$id", deviceId)) as string;
+            bool rotated;
+            try
+            {
+                rotated = current is not null && !DeviceKey.SamePublicKey(current, certificatePem);
+            }
+            catch (System.Security.Cryptography.CryptographicException)
+            {
+                rotated = false; // неразборчивый сертификат в базе — просто заменяем, без «прежнего»
+            }
+
+            return c.Exec(tx, """
+                UPDATE devices SET certificate_pem = $cert,
+                    previous_certificate_pem = CASE WHEN $rotated = 1 AND $fromPrevious = 0 THEN certificate_pem ELSE previous_certificate_pem END
+                WHERE device_id = $id
+                """, ("$cert", certificatePem), ("$rotated", rotated), ("$fromPrevious", signedWithPreviousKey), ("$id", deviceId));
+        }, ct);
+
+    /// <summary>Агент подписал запрос новым ключом — сертификат прежнего больше не принимается.</summary>
+    public async Task ForgetPreviousDeviceCertificateAsync(string deviceId, CancellationToken ct = default) =>
+        await database.WriteAsync((c, tx) => c.Exec(tx, "UPDATE devices SET previous_certificate_pem = NULL WHERE device_id = $id",
+            ("$id", deviceId)), ct);
 
     private bool RevokeDeviceCore(SqliteConnection c, SqliteTransaction tx, string deviceId, string actor, DateTimeOffset now)
     {
@@ -1019,14 +1048,17 @@ public sealed partial class EdgeStore(EdgeDatabase database, EdgeSignals signals
             INSERT INTO devices (device_id, display_name, zone_id, simulated, certificate_pem)
             VALUES ($id, $name, $zone, $sim, $cert)
             ON CONFLICT(device_id) DO UPDATE SET display_name = excluded.display_name, zone_id = excluded.zone_id,
-                simulated = excluded.simulated, certificate_pem = excluded.certificate_pem
+                simulated = excluded.simulated,
+                -- Конфигурация, прочитанная до продления, несёт прежний сертификат — новый не затираем (D-011).
+                certificate_pem = CASE WHEN devices.previous_certificate_pem = excluded.certificate_pem
+                                       THEN devices.certificate_pem ELSE excluded.certificate_pem END
             """, ("$id", id), ("$name", name), ("$zone", zoneId), ("$sim", simulated), ("$cert", certPem));
 
     private static EdgeDevice MapDevice(SqliteDataReader r) => new(
         r.S("device_id"), r.S("display_name"), r.S("zone_id"), r.L("simulated") == 1, r.S("certificate_pem"),
         r.L("online") == 1, Enum.Parse<DeviceStatus>(r.S("agent_status")), r.TN("last_heartbeat_utc"),
         r.Str("inventory_json") is { } inv ? JsonSerializer.Deserialize<DeviceInventory>(inv, ContractJson.Options) : null,
-        r.Str("hardware_id"), r.Str("local_certificate_pem"));
+        r.Str("hardware_id"), r.Str("local_certificate_pem"), r.Str("previous_certificate_pem"));
 
     private static EdgeSession MapSession(SqliteDataReader r) => new(
         r.S("session_id"), r.S("device_id"), Enum.Parse<SessionState>(r.S("state")), r.S("origin"),

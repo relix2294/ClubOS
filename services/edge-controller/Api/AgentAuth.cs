@@ -15,6 +15,11 @@ public sealed class AgentAuth(EdgeIdentityStore identity, EdgeStore store, TimeP
     private SignedTokenValidator? _validator;
     private SignedTokenValidator? _disklessValidator;
 
+    /// <summary>Ключ HttpContext.Items: запрос подписан прежним ключом устройства (D-011).</summary>
+    public const string PreviousKeyItem = "clubos.agent.previousKey";
+
+    public static bool UsedPreviousKey(HttpContext http) => http.Items.TryGetValue(PreviousKeyItem, out var v) && v is true;
+
     public string? Authenticate(HttpContext http)
     {
         string? header = http.Request.Headers.Authorization;
@@ -45,12 +50,29 @@ public sealed class AgentAuth(EdgeIdentityStore identity, EdgeStore store, TimeP
         var (validator, certificate) = device.Diskless
             ? (DisklessValidator(), device.LocalCertificatePem!)
             : (Validator(), device.CertificatePem);
+        var binding = SignedBody.Binding(http);
         var result = validator.Validate(token, certificate, SignedToken.AudienceEdge,
-            DevCertificateAuthority.RoleDevice, SignedBody.Binding(http), options.Value.RequireAgentRequestBinding);
+            DevCertificateAuthority.RoleDevice, binding, options.Value.RequireAgentRequestBinding);
+        var usedPrevious = false;
+        // После ротации ключа (D-011) прежний ключ агента принимается, пока агент не перешёл на новый.
+        if (!result.Success && result.Error == "bad signature" && !device.Diskless && device.PreviousCertificatePem is { } previous)
+        {
+            result = validator.Validate(token, previous, SignedToken.AudienceEdge, DevCertificateAuthority.RoleDevice, binding,
+                options.Value.RequireAgentRequestBinding);
+            usedPrevious = result.Success;
+        }
+
         if (!result.Success)
         {
             logger.LogWarning("Agent {DeviceId} auth rejected: {Reason}", deviceId, result.Error);
             return null;
+        }
+
+        http.Items[PreviousKeyItem] = usedPrevious;
+        if (!usedPrevious && device.PreviousCertificatePem is not null)
+        {
+            store.ForgetPreviousDeviceCertificateAsync(deviceId).GetAwaiter().GetResult();
+            logger.LogInformation("Агент {DeviceId} перешёл на новый ключ — прежний сертификат забыт", deviceId);
         }
 
         return deviceId;

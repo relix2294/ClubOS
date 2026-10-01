@@ -32,4 +32,19 @@ public sealed class DeviceKey : IDisposable
     }
 
     public void Dispose() => Key.Dispose();
+
+    /// <summary>Один и тот же открытый ключ у двух сертификатов (ротация ключа при продлении, D-011).</summary>
+    public static bool SamePublicKey(string certificatePemA, string certificatePemB)
+    {
+        using var a = System.Security.Cryptography.X509Certificates.X509Certificate2.CreateFromPem(certificatePemA);
+        using var b = System.Security.Cryptography.X509Certificates.X509Certificate2.CreateFromPem(certificatePemB);
+        return a.PublicKey.ExportSubjectPublicKeyInfo().AsSpan().SequenceEqual(b.PublicKey.ExportSubjectPublicKeyInfo());
+    }
+
+    /// <summary>Сертификат выпущен на этот ключ.</summary>
+    public bool Matches(string certificatePem)
+    {
+        using var cert = System.Security.Cryptography.X509Certificates.X509Certificate2.CreateFromPem(certificatePem);
+        return cert.PublicKey.ExportSubjectPublicKeyInfo().AsSpan().SequenceEqual(Key.ExportSubjectPublicKeyInfo());
+    }
 }

@@ -179,6 +179,12 @@ public sealed class Edge
     public required string Name { get; set; }
     public required string CertificatePem { get; set; }
     public DateTimeOffset CertificateExpiresAtUtc { get; set; }
+
+    /// <summary>
+    /// Сертификат прежнего ключа после продления с ротацией (D-011): принимается, пока Edge не подпишет запрос
+    /// новым ключом (ответ на продление мог потеряться). Затем очищается.
+    /// </summary>
+    public string? PreviousCertificatePem { get; set; }
     public DateTimeOffset EnrolledAtUtc { get; set; }
     public DateTimeOffset? LastSeenAtUtc { get; set; }
     public int PendingOutboxEvents { get; set; }

@@ -33,12 +33,37 @@ public sealed class EdgeIdentityStore
         _identityPath = Path.Combine(dataPath, "identity.json");
         _keyPath = Path.Combine(dataPath, "edge.key");
 
+        _nextKeyPath = _keyPath + ".next";
+        // Незавершённая ротация (сбой до ответа Cloud): новый ключ не понадобится — при следующем продлении будет свой.
+        File.Delete(_nextKeyPath);
+
         if (File.Exists(_identityPath) && File.Exists(_keyPath))
         {
             Current = JsonSerializer.Deserialize<EdgeIdentity>(File.ReadAllText(_identityPath), ContractJson.Options);
             _key = DeviceKey.FromPrivateKeyPem(ReadKeyPem(_keyPath));
             _enrolled.TrySetResult();
         }
+    }
+
+    private readonly string _nextKeyPath;
+
+    /// <summary>Новый ключ для продления с ротацией (D-011): сохранён отдельно, текущий ключ пока действует.</summary>
+    public DeviceKey CreateNextKey()
+    {
+        var key = DeviceKey.Generate();
+        WriteKeyPem(_nextKeyPath, key.ExportPrivateKeyPem());
+        return key;
+    }
+
+    /// <summary>
+    /// Перейти на новый ключ и сертификат. Сначала ключ (атомарная замена файла), потом identity: при сбое между
+    /// ними Cloud уже принимает новый ключ, а сертификат перечитается при следующем продлении.
+    /// </summary>
+    public void CommitNextKey(DeviceKey key, EdgeIdentity identity)
+    {
+        File.Move(_nextKeyPath, _keyPath, overwrite: true);
+        _key = key; // прежний объект не освобождаем: им может подписываться запрос, идущий прямо сейчас
+        Save(identity);
     }
 
     public EdgeIdentity? Current { get; private set; }

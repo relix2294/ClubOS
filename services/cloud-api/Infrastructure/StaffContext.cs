@@ -35,15 +35,19 @@ public sealed record StaffContext(string UserId, string TenantId, string Role, s
 }
 
 /// <summary>Контекст аутентифицированного Edge (по подписанному токену и сертификату dev CA).</summary>
-public sealed record EdgeContext(string EdgeId, string TenantId, string LocationId)
+public sealed record EdgeContext(string EdgeId, string TenantId, string LocationId, bool UsedPreviousKey = false)
 {
     public const string EdgeIdClaim = "edge_id";
     public const string LocationClaim = "location_id";
+
+    /// <summary>Запрос подписан прежним ключом Edge (после ротации Edge ещё не перешёл на новый, D-011).</summary>
+    public const string PreviousKeyClaim = "edge_previous_key";
 
     public string Actor => $"edge:{EdgeId}";
 
     public static EdgeContext From(ClaimsPrincipal principal) => new(
         principal.FindFirstValue(EdgeIdClaim) ?? throw new InvalidOperationException("Нет edge_id."),
         principal.FindFirstValue(StaffContext.TenantClaim) ?? throw new InvalidOperationException("Нет org."),
-        principal.FindFirstValue(LocationClaim) ?? throw new InvalidOperationException("Нет location_id."));
+        principal.FindFirstValue(LocationClaim) ?? throw new InvalidOperationException("Нет location_id."),
+        principal.HasClaim(PreviousKeyClaim, "1"));
 }

@@ -33,6 +33,9 @@ public sealed class AgentIdentityStore
         _identityPath = Path.Combine(dataPath, "identity.json");
         _keyPath = Path.Combine(dataPath, "device.key");
         _protector = protector;
+        _nextKeyPath = _keyPath + ".next";
+        // Незавершённая ротация (сбой до ответа Edge): при следующем продлении будет новый ключ.
+        File.Delete(_nextKeyPath);
 
         if (File.Exists(_identityPath) && File.Exists(_keyPath))
         {
@@ -84,6 +87,27 @@ public sealed class AgentIdentityStore
         WritePrivate(_keyPath, _protector.Protect(Encoding.UTF8.GetBytes(key.ExportPrivateKeyPem())));
         _key = key;
         return key;
+    }
+
+    private readonly string _nextKeyPath;
+
+    /// <summary>Новый ключ для продления с ротацией (D-011): хранится отдельно, текущий ключ пока действует.</summary>
+    public DeviceKey CreateNextKey()
+    {
+        var key = DeviceKey.Generate();
+        WritePrivate(_nextKeyPath, _protector.Protect(Encoding.UTF8.GetBytes(key.ExportPrivateKeyPem())));
+        return key;
+    }
+
+    /// <summary>
+    /// Перейти на новый ключ и сертификат: сначала ключ (атомарная замена файла), затем identity. При сбое между ними
+    /// Edge уже принимает новый ключ, а сертификат обновится при следующем продлении.
+    /// </summary>
+    public void CommitNextKey(DeviceKey key, AgentIdentity identity)
+    {
+        File.Move(_nextKeyPath, _keyPath, overwrite: true);
+        _key = key; // прежний объект не освобождаем: им может подписываться текущий запрос
+        Save(identity);
     }
 
     public void Save(AgentIdentity identity)

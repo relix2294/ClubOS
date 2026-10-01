@@ -48,7 +48,7 @@ public static class AgentEndpoints
         try
         {
             var response = await cloud.RenewDeviceAsync(deviceId, request, ct);
-            await store.UpdateDeviceCertificateAsync(deviceId, response.CertificatePem, ct);
+            await store.UpdateDeviceCertificateAsync(deviceId, response.CertificatePem, ct, AgentAuth.UsedPreviousKey(http));
             logs.CreateLogger("Certificates").LogInformation("Сертификат устройства {DeviceId} продлён до {ExpiresAt}",
                 deviceId, response.CertificateExpiresAtUtc);
             return Results.Ok(response);
