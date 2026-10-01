@@ -200,6 +200,15 @@ function SessionCard({ device, onChange }: { device: DeviceView; onChange: () =>
 
         {!session && <p className="text-sm text-slate-500">{t.device.noSession}</p>}
         {session?.state === "Created" && <p className="text-sm text-amber-700">{t.device.waitingEdge}</p>}
+        {device.nextBooking && (
+          <p className="rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-900" data-testid="device-booking">
+            {t.bookings.badge}: {formatDateTime(device.nextBooking.startsAtUtc, location.timezone)} –{" "}
+            {formatTime(device.nextBooking.endsAtUtc, location.timezone)} · {device.nextBooking.guestName}.{" "}
+            <Link href="/bookings" className="underline">
+              {t.nav.bookings}
+            </Link>
+          </p>
+        )}
         {session?.packageName && (
           <p className="text-sm text-slate-700" data-testid="session-package">
             {t.tariffs.package}: <span className="font-semibold">{session.packageName}</span>

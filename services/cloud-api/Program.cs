@@ -180,6 +180,7 @@ app.MapRevocationEndpoints();
 app.MapCashEndpoints();
 app.MapDisklessEndpoints();
 app.MapClientEndpoints();
+app.MapBookingEndpoints();
 
 await app.RunAsync();
 return 0;

@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import type { DeviceStatus, DeviceView, PendingDisklessView } from "@clubos/contracts";
+import { BookingRules, type BookingBrief, type DeviceStatus, type DeviceView, type PendingDisklessView } from "@clubos/contracts";
 import { useShell } from "@/components/AppShell";
 import { IconServer } from "@/components/icons";
 import { SessionTimer } from "@/components/SessionTimer";
 import { DeviceStatusBadge } from "@/components/StatusBadge";
 import { Button, Card, EmptyState, ErrorState, Loading, SimulatedBadge } from "@/components/ui";
 import { apiGet, apiPost } from "@/lib/api";
-import { formatAgo, formatDateTime } from "@/lib/format";
+import { formatAgo, formatDateTime, formatTime } from "@/lib/format";
 import { deviceStatusLabel, t } from "@/lib/i18n";
 import { useNow, usePolling } from "@/lib/usePolling";
 
@@ -68,7 +68,7 @@ export default function DashboardPage() {
                       className="flex h-full flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-brand-500 hover:shadow"
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <span className="font-semibold text-slate-900">{d.displayName}</span>
+                        <span className="font-semibold text-slate-900" data-testid="device-tile-name">{d.displayName}</span>
                         <DeviceStatusBadge status={d.status} />
                       </div>
                       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
@@ -87,6 +87,7 @@ export default function DashboardPage() {
                       <div className="mt-auto text-xs text-slate-500" title={formatDateTime(d.lastHeartbeatUtc, location.timezone)}>
                         {t.dashboard.lastHeartbeat}: {formatAgo(d.lastHeartbeatUtc, now)}
                       </div>
+                      {d.nextBooking && <BookingBadge booking={d.nextBooking} timeZone={location.timezone} now={now} />}
                       {d.activeSession?.state === "Active" && <SessionTimer session={d.activeSession} />}
                       {d.activeSession?.state === "Created" && <span className="text-xs text-amber-700">{t.device.waitingEdge}</span>}
                     </Link>
@@ -242,5 +243,18 @@ function EdgePanel() {
         ))}
       </ul>
     </Card>
+  );
+}
+
+/** Бронь на плитке: янтарная, когда ПК уже держится для гостя (за 15 минут до начала). */
+function BookingBadge({ booking, timeZone, now }: { booking: BookingBrief; timeZone: string; now: number }) {
+  const holding = Date.parse(booking.startsAtUtc) - now <= BookingRules.holdMinutes * 60_000;
+  return (
+    <span
+      data-testid="tile-booking"
+      className={`rounded px-1.5 py-0.5 text-xs ${holding ? "bg-amber-100 font-semibold text-amber-900" : "bg-violet-50 text-violet-800"}`}
+    >
+      {t.bookings.badge} {formatTime(booking.startsAtUtc, timeZone)}–{formatTime(booking.endsAtUtc, timeZone)} · {booking.guestName}
+    </span>
   );
 }

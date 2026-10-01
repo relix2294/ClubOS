@@ -254,3 +254,71 @@ test("тарифы: цена по времени и пакет → сессия 
   await page.getByRole("link", { name: "Журнал аудита" }).first().click();
   await expect(page.getByTestId("audit-table")).toContainText("Добавлен пакет");
 });
+
+test("бронирование: бронь на завтра → шкала → отмена; бронь сейчас → начать по брони", async ({ page }) => {
+  test.skip(!password, "Задайте E2E_PASSWORD");
+  await login(page);
+  await page.getByRole("link", { name: "Бронирования" }).first().click();
+  await expect(page.getByRole("heading", { name: "Бронирования" })).toBeVisible();
+
+  // Бронь на завтра 18:00 на 2 часа.
+  const form = page.getByRole("form", { name: "Новая бронь" });
+  const guest = `E2E Гость ${String(Date.now()).slice(-5)}`;
+  const tomorrow = await page.evaluate(() => {
+    const d = new Date(Date.now() + 5 * 3600_000 + 24 * 3600_000); // Душанбе UTC+5
+    return d.toISOString().slice(0, 10);
+  });
+  await form.getByLabel("Дата").fill(tomorrow);
+  await form.getByLabel("Время").fill("18:00");
+  await form.getByLabel("Длительность").selectOption("120");
+  await form.getByLabel("Имя гостя").fill(guest);
+  await form.getByRole("button", { name: "Забронировать" }).click();
+  await expect(page.getByTestId("booking-details")).toContainText(guest);
+  await expect(page.getByTestId("booking-details")).toContainText("18:00–20:00");
+  await expect(page.getByTestId("timeline-booking").filter({ hasText: guest })).toHaveAttribute("data-status", "Booked");
+
+  // Повтор на то же время и ПК — отказ БД.
+  await form.getByLabel("Дата").fill(tomorrow);
+  await form.getByLabel("Время").fill("19:00");
+  await form.getByLabel("Имя гостя").fill("Дубль");
+  await form.getByRole("button", { name: "Забронировать" }).click();
+  await expect(form.getByRole("alert")).toContainText("уже забронирован");
+
+  // Отмена.
+  page.once("dialog", (d) => void d.accept());
+  await page.getByRole("button", { name: "Отменить бронь" }).click();
+  await expect(page.getByTestId("booking-status")).toHaveText("Отменена");
+
+  // Бронь «сейчас» на свободный ПК → плитка показывает бронь → начать по брони.
+  await page.getByRole("link", { name: "Устройства" }).first().click();
+  const tile = page.getByTestId("device-tile").filter({ has: page.locator('[data-status="Idle"]') }).nth(1);
+  const deviceName = (await tile.getByTestId("device-tile-name").innerText()).trim();
+  await page.getByRole("link", { name: "Бронирования" }).first().click();
+  const now = await page.evaluate(() => {
+    const d = new Date(Date.now() + 5 * 3600_000 + 60_000);
+    return { date: d.toISOString().slice(0, 10), time: d.toISOString().slice(11, 16) };
+  });
+  const nowGuest = `${guest} сейчас`;
+  const option = form.getByLabel("ПК").locator("option", { hasText: `${deviceName} ·` }).first();
+  await form.getByLabel("ПК").selectOption((await option.getAttribute("value"))!);
+  await form.getByLabel("Дата").fill(now.date);
+  await form.getByLabel("Время").fill(now.time);
+  await form.getByLabel("Длительность").selectOption("60");
+  await form.getByLabel("Имя гостя").fill(nowGuest);
+  await form.getByRole("button", { name: "Забронировать" }).click();
+  await expect(page.getByTestId("booking-details")).toContainText(nowGuest);
+
+  await page.getByRole("link", { name: "Устройства" }).first().click();
+  await expect(page.getByTestId("device-tile").filter({ hasText: deviceName }).getByTestId("tile-booking")).toContainText(nowGuest);
+  await page.getByRole("link", { name: "Бронирования" }).first().click();
+  await page.getByTestId("booking-row").filter({ hasText: nowGuest }).getByRole("button", { name: "Открыть" }).click();
+  await page.getByRole("button", { name: "Начать по брони" }).click();
+  await expect(page.getByTestId("booking-status")).toHaveText("Гость пришёл");
+
+  // Сессия идёт на этом ПК — завершаем, чтобы ПК был свободен.
+  await page.getByRole("link", { name: "Устройства" }).first().click();
+  await page.getByTestId("device-tile").filter({ hasText: deviceName }).first().click();
+  await expect(page.getByTestId("session-remaining")).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "Завершить сессию" }).click();
+  await expect(page.getByTestId("session-history").locator("li").first().locator('[data-state="Ended"]')).toBeVisible({ timeout: 20_000 });
+});

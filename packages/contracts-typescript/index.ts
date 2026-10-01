@@ -47,6 +47,8 @@ export interface DeviceView {
   certificateExpiresAtUtc: string;
   /** Бездисковый ПК (D-018): MAC загрузочной карты; сертификат выдаёт Edge при каждой загрузке. */
   hardwareId: string | null;
+  /** Ближайшая бронь ПК (ждёт гостя), если есть. */
+  nextBooking?: BookingBrief | null;
 }
 
 /** Бездисковый ПК, который загрузился в клубе и ждёт подтверждения (D-018). */
@@ -683,3 +685,46 @@ export interface ClientAdjustmentRequest {
   amountMinorUnits: number;
   reason: string;
 }
+
+// ---- Бронирования (D-020) ----
+
+export type BookingStatus = "Booked" | "Started" | "Cancelled" | "NoShow";
+
+export interface BookingBrief {
+  bookingId: string;
+  guestName: string;
+  startsAtUtc: string;
+  endsAtUtc: string;
+}
+
+export interface BookingView {
+  bookingId: string;
+  locationId: string;
+  deviceId: string;
+  deviceName: string;
+  clientId: string | null;
+  guestName: string;
+  guestPhone: string | null;
+  startsAtUtc: string;
+  endsAtUtc: string;
+  status: BookingStatus;
+  note: string | null;
+  sessionId: string | null;
+  createdByName: string;
+  createdAtUtc: string;
+  cancelReason: string | null;
+}
+
+export interface CreateBookingRequest {
+  deviceId: string;
+  /** Местное время локации «ГГГГ-ММ-ДДTчч:мм». */
+  startsAt: string;
+  durationMinutes: number;
+  clientId?: string | null;
+  guestName?: string | null;
+  guestPhone?: string | null;
+  note?: string | null;
+}
+
+/** За сколько минут до начала бронь держит ПК и сколько ждём опоздавшего (как в Cloud). */
+export const BookingRules = { holdMinutes: 15, graceMinutes: 15 } as const;

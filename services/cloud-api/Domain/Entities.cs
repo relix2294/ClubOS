@@ -529,3 +529,42 @@ public sealed class ClientLedgerEntry
     public required string CreatedBy { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; }
 }
+
+public static class BookingStatuses
+{
+    /// <summary>Ожидает гостя: держит ПК (ограничение БД — без пересечений по ПК).</summary>
+    public const string Booked = "Booked";
+
+    /// <summary>Гость пришёл: по брони начата сессия.</summary>
+    public const string Started = "Started";
+
+    public const string Cancelled = "Cancelled";
+
+    /// <summary>Гость не пришёл до конца льготного времени.</summary>
+    public const string NoShow = "NoShow";
+}
+
+/// <summary>
+/// Бронь ПК на время (ТЗ: бронирования). Пока статус Booked, интервал не пересекается с другими бронями этого ПК
+/// (exclusion constraint). За <see cref="Api.BookingEndpoints.HoldMinutes"/> минут до начала ПК держится для гостя.
+/// </summary>
+public sealed class Booking
+{
+    public required string Id { get; set; }
+    public required string TenantId { get; set; }
+    public required string LocationId { get; set; }
+    public required string DeviceId { get; set; }
+    public string? ClientId { get; set; }
+    public required string GuestName { get; set; }
+    public string? GuestPhone { get; set; }
+    public DateTimeOffset StartsAtUtc { get; set; }
+    public DateTimeOffset EndsAtUtc { get; set; }
+    public string Status { get; set; } = BookingStatuses.Booked;
+    public string? Note { get; set; }
+    public string? SessionId { get; set; }
+    public required string CreatedBy { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public string? ClosedBy { get; set; }
+    public DateTimeOffset? ClosedAtUtc { get; set; }
+    public string? CancelReason { get; set; }
+}

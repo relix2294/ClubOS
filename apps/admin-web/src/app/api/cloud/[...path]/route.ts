@@ -35,6 +35,8 @@ const ALLOWED = [
   /^reports\/revenue$/,
   /^locations\/[\w-]+\/diskless-candidates$/,
   /^diskless-candidates\/[\w-]+\/(approve|dismiss)$/,
+  /^locations\/[\w-]+\/bookings$/,
+  /^bookings\/[\w-]+\/(start|cancel)$/,
   /^clients$/,
   /^clients\/[\w-]+(\/(topups|adjustments))?$/,
 ];

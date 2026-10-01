@@ -134,6 +134,23 @@ Live-поток: тема `cash` (только с `cash.operate`).
 Аудит: `client.created` (телефон маскирован), `client.updated`, `client.blocked`, `client.unblocked`, `client.topup`,
 `client.adjustment`. Live: тема `cash`.
 
+## Cloud API: бронирования (JWT Bearer, `sessions.manage`)
+
+Брони ПК (D-020). Пока бронь ждёт гостя (`Booked`), интервалы одного ПК не пересекаются — ограничение БД
+(`EXCLUDE USING gist`, расширение `btree_gist`). За 15 минут до начала ПК держится: обычный старт сессии —
+**409** `device_booked`, сессия с лимитом, заходящая на будущую бронь, — **409** `booking_conflict`.
+Гость, опоздавший больше чем на 15 минут, — `NoShow` (снимается при чтении и проверках).
+
+| Метод | Путь | Назначение |
+|-------|------|-----------|
+| GET | `/api/v1/locations/{locationId}/bookings?date=ГГГГ-ММ-ДД` | Брони местного дня (по умолчанию сегодня), все статусы |
+| POST | `/api/v1/locations/{locationId}/bookings` | `{deviceId, startsAt: "ГГГГ-ММ-ДДTчч:мм" (местное время), durationMinutes 15–1440, clientId?, guestName?, guestPhone?, note?}` → **201**. Имя по умолчанию — клиента. **409** `booking_overlap`, `session_overlap`, `client_blocked`; **400** `start_in_past`, `too_far` (> 30 дней), `invalid_start` |
+| POST | `/api/v1/bookings/{id}/start` | Гость пришёл: сессия на ПК брони (клиент брони, лимит до конца брони; раньше начала — полная длительность), бронь `Started` в той же транзакции. **409** `booking_not_due` (раньше чем за 15 мин), `booking_expired`, `booking_closed` |
+| POST | `/api/v1/bookings/{id}/cancel` | `{reason?}` → `Cancelled` |
+
+`DeviceView.nextBooking` — ближайшая ждущая бронь ПК (`{bookingId, guestName, startsAtUtc, endsAtUtc}`).
+Аудит: `booking.created`, `booking.cancelled`; старт по брони — `session.start` с `bookingId`. Live: темы `sessions`, `devices`.
+
 ## Cloud API: Edge (`Authorization: ClubOS-Sig <JWS>`)
 
 Токен `ClubOS-Sig` (ES256, 60 с, одноразовый `jti`) подписан ключом Edge и привязан к запросу:

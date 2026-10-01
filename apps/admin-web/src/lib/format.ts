@@ -76,3 +76,25 @@ export function inStartWindow(from: number | null, to: number | null, minute: nu
   if (from === null || to === null) return true;
   return from < to ? minute >= from && minute < to : minute >= from || minute < to;
 }
+
+/** Местная дата «ГГГГ-ММ-ДД» и минута суток момента в часовом поясе локации. */
+export function localDateMinute(timeZone: string, at: Date = new Date()): { date: string; minute: number } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(at);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return { date: `${get("year")}-${get("month")}-${get("day")}`, minute: Number(get("hour")) * 60 + Number(get("minute")) };
+}
+
+/** «ГГГГ-ММ-ДД» + n дней (календарно, без часовых поясов). */
+export function addDays(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}

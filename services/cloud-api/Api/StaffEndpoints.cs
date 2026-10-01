@@ -93,10 +93,12 @@ public static class StaffEndpoints
                         (x.State == SessionState.Created || x.State == SessionState.Active))
             .ToListAsync(ct);
         var now = time.GetUtcNow();
+        var bookings = await BookingEndpoints.NextBookingsAsync(db, deviceIds, now, ct);
 
         return Results.Ok(devices.Select(d => d.ToView(zones.GetValueOrDefault(d.ZoneId, "?"),
             openSessions.Where(s => s.DeviceId == d.Id).OrderByDescending(s => s.RequestedAtUtc)
-                .Select(s => s.ToView()).FirstOrDefault(), now)).ToList());
+                .Select(s => s.ToView()).FirstOrDefault(), now) with
+        { NextBooking = bookings.GetValueOrDefault(d.Id) }).ToList());
     }
 
     private static async Task<IResult> GetDevice(string deviceId, HttpContext http, LocationScope scope, ClubOsDbContext db, TimeProvider time,
@@ -114,7 +116,9 @@ public static class StaffEndpoints
         var open = await db.Sessions.AsNoTracking()
             .Where(x => x.DeviceId == deviceId && (x.State == SessionState.Created || x.State == SessionState.Active))
             .OrderByDescending(x => x.RequestedAtUtc).FirstOrDefaultAsync(ct);
-        return Results.Ok(device.ToView(zone.Name, open?.ToView(), time.GetUtcNow()));
+        var now = time.GetUtcNow();
+        var bookings = await BookingEndpoints.NextBookingsAsync(db, [deviceId], now, ct);
+        return Results.Ok(device.ToView(zone.Name, open?.ToView(), now) with { NextBooking = bookings.GetValueOrDefault(deviceId) });
     }
 
     private static async Task<IResult> ListCommands(string deviceId, HttpContext http, LocationScope scope, ClubOsDbContext db,
@@ -257,8 +261,13 @@ public static class StaffEndpoints
     /// Запрос старта сессии. Источник истины — Edge (ТЗ §23.3): Cloud фиксирует price snapshot,
     /// ставит StartSession в очередь Edge и возвращает 202; Active наступает по событию SessionStarted.
     /// </summary>
-    private static async Task<IResult> StartSession(string deviceId, StartSessionRequestBody? body, HttpContext http, LocationScope scope,
-        ClubOsDbContext db, AuditWriter audit, TimeProvider time, CancellationToken ct)
+    private static Task<IResult> StartSession(string deviceId, StartSessionRequestBody? body, HttpContext http, LocationScope scope,
+        ClubOsDbContext db, AuditWriter audit, TimeProvider time, CancellationToken ct) =>
+        StartSessionAsync(deviceId, body, http, scope, db, audit, time, ct);
+
+    /// <param name="booking">Старт по брони (отслеживаемая сущность): бронь не мешает своему старту и закрывается в той же транзакции.</param>
+    internal static async Task<IResult> StartSessionAsync(string deviceId, StartSessionRequestBody? body, HttpContext http, LocationScope scope,
+        ClubOsDbContext db, AuditWriter audit, TimeProvider time, CancellationToken ct, Booking? booking = null)
     {
         var staff = StaffContext.From(http.User);
         var duration = body?.DurationMinutes;
@@ -283,6 +292,14 @@ public static class StaffEndpoints
         var zone = await db.Zones.SingleAsync(x => x.Id == device.ZoneId, ct);
         var location = await db.Locations.SingleAsync(x => x.Id == device.LocationId, ct);
         var now = time.GetUtcNow();
+        // Бронь держит ПК за 15 минут до начала: обычный старт запрещён, только «Начать по брони».
+        await BookingEndpoints.ExpireNoShowsAsync(db, device.LocationId, now, ct);
+        if (await BookingEndpoints.HoldingBookingAsync(db, deviceId, now, ct) is { } hold && hold.Id != booking?.Id)
+        {
+            return Problems.Conflict("device_booked",
+                $"ПК забронирован: {hold.GuestName}, с {BookingEndpoints.LocalClock(hold.StartsAtUtc, location.Timezone)}. Начните сессию по брони или отмените её.");
+        }
+
         TariffPackage? package = null;
         if (body?.PackageId is { } packageId)
         {
@@ -311,6 +328,22 @@ public static class StaffEndpoints
             }
 
             duration = package.DurationMinutes;
+        }
+
+        // Сессия с лимитом не должна заходить на следующую бронь этого ПК.
+        if (duration is { } limit)
+        {
+            var until = now.AddMinutes(limit);
+            var next = await db.Bookings.AsNoTracking()
+                .Where(x => x.DeviceId == deviceId && x.Status == BookingStatuses.Booked && x.StartsAtUtc < until && x.EndsAtUtc > now &&
+                            (booking == null || x.Id != booking.Id))
+                .OrderBy(x => x.StartsAtUtc).FirstOrDefaultAsync(ct);
+            if (next is not null)
+            {
+                var allowed = (int)Math.Floor((next.StartsAtUtc - now).TotalMinutes);
+                return Problems.Conflict("booking_conflict",
+                    $"ПК забронирован с {BookingEndpoints.LocalClock(next.StartsAtUtc, location.Timezone)} ({next.GuestName}) — лимит не больше {Math.Max(allowed, 0)} мин.");
+            }
         }
 
         if (body?.ClientId is { } clientId)
@@ -351,6 +384,14 @@ public static class StaffEndpoints
             PackagePriceMinorUnits = package?.PriceMinorUnits
         };
         db.Sessions.Add(session);
+        if (booking is not null)
+        {
+            booking.Status = BookingStatuses.Started;
+            booking.SessionId = session.Id;
+            booking.ClosedBy = staff.Actor;
+            booking.ClosedAtUtc = now;
+        }
+
         EdgeQueue.Enqueue(db, staff.TenantId, device.LocationId, new EdgeCommand
         {
             Id = Ids.New("ecm"),
@@ -377,7 +418,8 @@ public static class StaffEndpoints
                 clientId = body?.ClientId,
                 packageId = package?.Id,
                 package = package?.Name,
-                packagePrice = package?.PriceMinorUnits
+                packagePrice = package?.PriceMinorUnits,
+                bookingId = booking?.Id
             });
         await db.SaveChangesAsync(ct);
 

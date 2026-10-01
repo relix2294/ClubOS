@@ -101,6 +101,10 @@ public sealed class LiveChangeInterceptor(LiveBroker broker) : ISaveChangesInter
             case DeviceCommand c:
                 yield return new LiveEvent(LiveTopics.Commands, c.TenantId, c.LocationId, c.DeviceId, c.Id);
                 break;
+            case Booking b:
+                yield return new LiveEvent(LiveTopics.Sessions, b.TenantId, b.LocationId, b.DeviceId, b.Id);
+                yield return new LiveEvent(LiveTopics.Devices, b.TenantId, b.LocationId, b.DeviceId);
+                break;
             case Session s:
                 yield return new LiveEvent(LiveTopics.Sessions, s.TenantId, s.LocationId, s.DeviceId, s.Id);
                 // Плитка устройства показывает активную сессию и таймер.

@@ -123,7 +123,8 @@ public sealed record DeviceView(
     DateTimeOffset EnrolledAtUtc,
     SessionView? ActiveSession,
     DateTimeOffset CertificateExpiresAtUtc,
-    string? HardwareId = null);
+    string? HardwareId = null,
+    BookingBrief? NextBooking = null);
 
 public sealed record IssueCommandRequest(
     CommandType CommandType,

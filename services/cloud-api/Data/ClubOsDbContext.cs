@@ -9,6 +9,7 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
     public DbSet<Location> Locations => Set<Location>();
     public DbSet<Zone> Zones => Set<Zone>();
     public DbSet<TariffPackage> TariffPackages => Set<TariffPackage>();
+    public DbSet<Booking> Bookings => Set<Booking>();
     public DbSet<User> Users => Set<User>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<MfaRecoveryCode> MfaRecoveryCodes => Set<MfaRecoveryCode>();
@@ -52,6 +53,20 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.Property(x => x.Rounding).HasConversion<string>();
             e.Property(x => x.PeriodsJson).HasColumnType("jsonb");
             e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<Booking>(e =>
+        {
+            e.ToTable("bookings");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Status).HasMaxLength(16);
+            e.Property(x => x.GuestName).HasMaxLength(80);
+            e.Property(x => x.GuestPhone).HasMaxLength(15);
+            e.HasIndex(x => new { x.LocationId, x.StartsAtUtc });
+            e.HasIndex(x => new { x.DeviceId, x.Status, x.StartsAtUtc });
+            e.HasOne<Device>().WithMany().HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Client>().WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Organization>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<TariffPackage>(e =>
