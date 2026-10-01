@@ -3,6 +3,7 @@ using System;
 using ClubOS.CloudApi.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ClubOS.CloudApi.Data.Migrations
 {
     [DbContext(typeof(ClubOsDbContext))]
-    partial class ClubOsDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261001180941_RemoteResults")]
+    partial class RemoteResults
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

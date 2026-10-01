@@ -126,6 +126,9 @@ public sealed record DeviceView(
     string? HardwareId = null,
     BookingBrief? NextBooking = null);
 
+/// <param name="ProcessId">KillProcess: PID и имя процесса из списка.</param>
+/// <param name="DelaySeconds">Reboot/Shutdown: задержка 0–600 с.</param>
+/// <param name="Force">Reboot/Shutdown при идущей сессии.</param>
 public sealed record IssueCommandRequest(
     CommandType CommandType,
     string? Title,
@@ -133,7 +136,11 @@ public sealed record IssueCommandRequest(
     bool? Lock,
     string? Reason,
     int? TtlSeconds,
-    string? CommandId);
+    string? CommandId,
+    int? ProcessId = null,
+    string? ProcessName = null,
+    int? DelaySeconds = null,
+    bool? Force = null);
 
 public sealed record CommandView(
     string CommandId,
@@ -145,7 +152,9 @@ public sealed record CommandView(
     DateTimeOffset ExpiresAtUtc,
     DateTimeOffset UpdatedAtUtc,
     string? Error,
-    JsonElement Payload);
+    JsonElement Payload,
+    bool HasResult = false,
+    JsonElement? Result = null);
 
 public sealed record SessionView(
     string SessionId,

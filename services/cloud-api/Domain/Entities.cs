@@ -284,6 +284,9 @@ public sealed class DeviceCommand
     public CommandState State { get; set; } = CommandState.Queued;
     public string? Error { get; set; }
     public DateTimeOffset UpdatedAtUtc { get; set; }
+
+    /// <summary>Результат удалённой команды (jsonb): снимок экрана, список процессов (D-022).</summary>
+    public string? ResultJson { get; set; }
 }
 
 /// <summary>Сессия (ТЗ §12). Price snapshot фиксируется на старте; ended не редактируется.</summary>

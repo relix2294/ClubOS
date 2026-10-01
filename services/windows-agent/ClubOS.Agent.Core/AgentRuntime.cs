@@ -338,7 +338,7 @@ public sealed class AgentRuntime(
                 foreach (var command in response.Commands)
                 {
                     await executor.ExecuteAsync(identity.Current!.DeviceId, command,
-                        (state, error) => ReportWithRetry(command.CommandId, state, error, ct), ct);
+                        (state, error, output) => ReportWithRetry(command.CommandId, state, error, output, ct), ct);
                 }
 
                 delay = TimeSpan.FromSeconds(1);
@@ -352,13 +352,14 @@ public sealed class AgentRuntime(
         }
     }
 
-    private async Task ReportWithRetry(string commandId, CommandState state, string? error, CancellationToken ct)
+    private async Task ReportWithRetry(string commandId, CommandState state, string? error, System.Text.Json.JsonElement? output,
+        CancellationToken ct)
     {
         for (var attempt = 1; attempt <= 5; attempt++)
         {
             try
             {
-                await edge.ReportResultAsync(commandId, state, error, ct);
+                await edge.ReportResultAsync(commandId, state, error, output, ct);
                 return;
             }
             catch (Exception ex) when (ex is not OperationCanceledException && attempt < 5)

@@ -536,7 +536,7 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
 
     /// <summary>Результат от агента. Переходы только вперёд; повтор/устаревший результат игнорируется.</summary>
     public async Task<bool> ApplyAgentResultAsync(string deviceId, string commandId, CommandState state, string? error,
-        CancellationToken ct = default)
+        CancellationToken ct = default, JsonElement? output = null)
     {
         if (state is not (CommandState.Acknowledged or CommandState.Succeeded or CommandState.Failed))
         {
@@ -564,7 +564,8 @@ public sealed class EdgeStore(EdgeDatabase database, EdgeSignals signals, TimePr
                 DeviceId = deviceId,
                 State = state,
                 AtUtc = now,
-                Error = safeError
+                Error = safeError,
+                Output = output
             }, env.CorrelationId);
             return true;
         }, ct);

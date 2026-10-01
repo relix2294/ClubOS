@@ -144,6 +144,8 @@ internal sealed class HostContext : ApplicationContext
                 case SessionHostProtocol.TypeShell when request.Shell is { } shell:
                     ApplyShell(shell);
                     return Ok(request);
+                case SessionHostProtocol.TypeScreenshot:
+                    return ScreenCapture.Capture(request.Id);
                 default:
                     return new HostMessage { Id = request.Id, Ok = false, Error = $"Неизвестный тип запроса {request.Type}." };
             }

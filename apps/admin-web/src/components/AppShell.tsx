@@ -147,21 +147,6 @@ export function AppShell({ children }: { children: ReactNode }) {
               );
             })}
           </nav>
-          <div className="mt-4 px-3">
-            <div className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">{t.future.title}</div>
-            {t.future.items.map((label) => (
-              <button
-                key={label}
-                type="button"
-                disabled
-                title={t.future.notImplemented}
-                className="flex w-full cursor-not-allowed flex-col items-start rounded-lg px-3 py-1.5 text-left text-sm text-slate-400"
-              >
-                {label}
-                <span className="text-[10px] leading-tight">{t.future.notImplemented}</span>
-              </button>
-            ))}
-          </div>
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">

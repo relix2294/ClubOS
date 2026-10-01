@@ -263,3 +263,19 @@ public class EdgeStoreTests : IDisposable
         }
     };
 }
+
+/// <summary>Пакет outbox ограничен по объёму (снимки экрана D-022), но хотя бы одно событие уходит.</summary>
+public class OutboxBatchSizeTests
+{
+    private static ClubOS.EdgeController.Storage.OutboxEvent Event(long seq, int size) =>
+        new(seq, $"evt_{seq}", "T", "agg", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, null, new string('x', size), 0);
+
+    [Fact]
+    public void Batch_stops_before_the_size_limit_but_keeps_at_least_one()
+    {
+        var events = new[] { Event(1, 400), Event(2, 400), Event(3, 400) };
+        Assert.Equal(2, ClubOS.EdgeController.Workers.OutboxPublisher.LimitBySize(events, maxChars: 1000).Count);
+        Assert.Single(ClubOS.EdgeController.Workers.OutboxPublisher.LimitBySize([Event(1, 5000), Event(2, 1)], maxChars: 1000));
+        Assert.Equal(3, ClubOS.EdgeController.Workers.OutboxPublisher.LimitBySize(events).Count);
+    }
+}

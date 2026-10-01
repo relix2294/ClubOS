@@ -77,6 +77,9 @@ public sealed record CommandStateChangedPayload
     public required CommandState State { get; init; }
     public required DateTimeOffset AtUtc { get; init; }
     public string? Error { get; init; }
+
+    /// <summary>Данные результата (<see cref="AgentCommandResultRequest.Output"/>).</summary>
+    public System.Text.Json.JsonElement? Output { get; init; }
 }
 
 public sealed record DeviceConnectivityChangedPayload

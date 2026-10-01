@@ -17,7 +17,8 @@ Tenant берётся только из JWT. Чужие объекты возв�
 | GET | `/api/v1/locations/{locationId}/devices` | устройства с эффективным статусом и активной сессией |
 | GET | `/api/v1/devices/{deviceId}` | карточка: инвентаризация, heartbeat, статус |
 | GET | `/api/v1/devices/{deviceId}/commands` | последние 50 команд |
-| POST | `/api/v1/devices/{deviceId}/commands` | `ShowMessage {title≤80, message≤500}` или `LockTestMode {lock, reason?}`; `ttlSeconds` 10–3600 (по умолчанию 120); `commandId` для идемпотентности |
+| POST | `/api/v1/devices/{deviceId}/commands` | `ShowMessage {title≤80, message≤500}` или `LockTestMode {lock, reason?}`; `ttlSeconds` 10–3600 (по умолчанию 120); `commandId` для идемпотентности. Удалённый доступ (D-022, `devices.remote`): `Screenshot`, `ListProcesses`, `KillProcess {processId, processName}` (системные и ClubOS — **400** `protected_process`), `Reboot`/`Shutdown {delaySeconds 0–600, message?, force?}` — при идущей сессии без `force` **409** `session_active` |
+| GET | `/api/v1/commands/{commandId}` | `devices.remote`: команда с результатом (`result`: снимок `{mime, dataBase64, width, height, capturedAtUtc}` или `{processes: [{processId, name, memoryMb, windowTitle}]}`); в списке команд — только `hasResult` |
 | GET | `/api/v1/devices/{deviceId}/sessions` | последние 20 сессий |
 | POST | `/api/v1/devices/{deviceId}/sessions` | запрос старта; тело необязательно: `{durationMinutes?: 1..1440}` — лимит времени (без него — открытая сессия, оплата по факту). **202**, `state=Created`; `Active` и `plannedEndAtUtc` приходят по событию от Edge. **409**, если открытая сессия уже есть; **400** — лимит вне диапазона. `packageId` — пакет зоны ПК: лимит и цена из пакета (`durationMinutes` не передаётся); **409** `package_zone_mismatch`, `package_not_available` (вне окна начала), **404** — пакет отключён. Снимок тарифа сессии: цена, периоды, смещение местного времени (`utcOffsetMinutes`), пакет (`packageName`, `packageMinutes`, `packagePriceMinorUnits`) |
 | POST | `/api/v1/sessions/{sessionId}/end` | запрос завершения (идемпотентно): **202**, или **200** если уже завершена/запрошена |
@@ -65,6 +66,10 @@ Tenant берётся только из JWT. Чужие объекты возв�
 | `enrollment.manage` — токены Edge и ПК | ✓ | ✓ | — |
 | `staff.manage` — персонал | ✓ | — | — |
 | `locations.manage` — локации, зоны, тарифы | ✓ | — | — |
+| `devices.remote` — снимок экрана, процессы, перезагрузка/выключение ПК | ✓ | ✓ | — |
+| `cash.operate` — касса, клиенты, бар (продажа) | ✓ | ✓ | ✓ |
+| `cash.refund` — возвраты, корректировки баланса, товары и склад | ✓ | ✓ | — |
+| `reports.view` — отчёты, история смен | ✓ | ✓ | — |
 
 **Права по локациям.** Owner и сотрудники с «все локации» видят все локации организации. Остальные видят
 только назначенные: чужая локация, её устройства, сессии и события отвечают **404**, как объекты другой

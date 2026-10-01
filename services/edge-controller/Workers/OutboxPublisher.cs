@@ -22,6 +22,28 @@ public sealed class OutboxPublisher(
 {
     public const int BatchSize = 100;
 
+    /// <summary>
+    /// Объём пакета (символы JSON событий): снимки экрана (D-022) по ~0,5 МБ не должны собирать пакет в десятки МБ.
+    /// Первое событие уходит всегда, даже если оно одно больше лимита.
+    /// </summary>
+    public const int MaxBatchChars = 4 * 1024 * 1024;
+
+    /// <summary>Сколько первых событий укладывается в лимит объёма (минимум одно).</summary>
+    public static IReadOnlyList<OutboxEvent> LimitBySize(IReadOnlyList<OutboxEvent> events, int maxChars = MaxBatchChars)
+    {
+        var total = 0;
+        for (var i = 0; i < events.Count; i++)
+        {
+            total += events[i].PayloadJson.Length;
+            if (total > maxChars && i > 0)
+            {
+                return events.Take(i).ToList();
+            }
+        }
+
+        return events;
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await identity.WhenEnrolled.WaitAsync(stoppingToken);
@@ -29,7 +51,7 @@ public sealed class OutboxPublisher(
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            var pending = store.GetPendingEvents(BatchSize);
+            var pending = LimitBySize(store.GetPendingEvents(BatchSize));
             if (pending.Count == 0)
             {
                 await signals.WaitOutboxAsync(TimeSpan.FromSeconds(1), stoppingToken);

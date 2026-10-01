@@ -142,7 +142,13 @@ public static class AgentEndpoints
             return Results.Unauthorized();
         }
 
-        var changed = await store.ApplyAgentResultAsync(deviceId, commandId, request.State, request.Error, ct);
+        if (request.Output is { } output &&
+            (request.State != CommandState.Succeeded || output.GetRawText().Length > RemoteLimits.MaxOutputChars))
+        {
+            return Results.BadRequest(new { detail = "Результат команды — только с Succeeded и не больше лимита." });
+        }
+
+        var changed = await store.ApplyAgentResultAsync(deviceId, commandId, request.State, request.Error, ct, request.Output);
         return Results.Ok(new { changed, state = store.GetCommandState(commandId) });
     }
 }

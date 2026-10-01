@@ -32,6 +32,7 @@ public static class StaffEndpoints
         api.MapGet("/locations/{locationId}/devices", ListDevices).WithTags("Devices").RequirePermission(Permissions.DevicesView);
         api.MapGet("/devices/{deviceId}", GetDevice).WithTags("Devices").RequirePermission(Permissions.DevicesView);
         api.MapGet("/devices/{deviceId}/commands", ListCommands).WithTags("Commands").RequirePermission(Permissions.DevicesView);
+        api.MapGet("/commands/{commandId}", GetCommand).WithTags("Commands").RequirePermission(Permissions.DevicesRemote);
         api.MapPost("/devices/{deviceId}/commands", IssueCommand).WithTags("Commands").RequirePermission(Permissions.DevicesCommand);
         api.MapGet("/devices/{deviceId}/sessions", ListSessions).WithTags("Sessions").RequirePermission(Permissions.DevicesView);
         api.MapPost("/devices/{deviceId}/sessions", StartSession).WithTags("Sessions").RequirePermission(Permissions.SessionsManage);
@@ -121,6 +122,17 @@ public static class StaffEndpoints
         return Results.Ok(device.ToView(zone.Name, open?.ToView(), now) with { NextBooking = bookings.GetValueOrDefault(deviceId) });
     }
 
+    /// <summary>Команда с результатом (снимок экрана, процессы) — только для удалённого доступа (D-022).</summary>
+    private static async Task<IResult> GetCommand(string commandId, HttpContext http, LocationScope scope, ClubOsDbContext db,
+        CancellationToken ct)
+    {
+        var staff = StaffContext.From(http.User);
+        var command = await db.DeviceCommands.AsNoTracking().SingleOrDefaultAsync(x => x.Id == commandId && x.TenantId == staff.TenantId, ct);
+        return command is null || !await scope.CanAccessAsync(command.LocationId, ct)
+            ? Problems.NotFound("Команда")
+            : Results.Ok(command.ToViewWithResult());
+    }
+
     private static async Task<IResult> ListCommands(string deviceId, HttpContext http, LocationScope scope, ClubOsDbContext db,
         CancellationToken ct)
     {
@@ -171,8 +183,44 @@ public static class StaffEndpoints
 
                 payload = ContractJson.ToElement(new LockTestModePayload { Lock = request.Lock.Value, Reason = request.Reason?.Trim() });
                 break;
+            case CommandType.Screenshot or CommandType.ListProcesses or CommandType.KillProcess or CommandType.Reboot
+                or CommandType.Shutdown when !Permissions.Has(staff.Role, Permissions.DevicesRemote):
+                return Problems.Forbidden("Удалённый доступ к ПК — у администратора и владельца.");
+            case CommandType.Screenshot or CommandType.ListProcesses:
+                payload = ContractJson.ToElement(new { });
+                break;
+            case CommandType.KillProcess:
+                var name = request.ProcessName?.Trim() ?? string.Empty;
+                if (request.ProcessId is not > 0 || name.Length is 0 or > 260)
+                {
+                    return Problems.Validation("invalid_payload", "Укажите processId и processName из списка процессов.");
+                }
+
+                if (ProtectedProcesses.IsProtected(name))
+                {
+                    return Problems.Validation("protected_process", $"Процесс «{name}» системный — завершать нельзя.");
+                }
+
+                payload = ContractJson.ToElement(new KillProcessPayload { ProcessId = request.ProcessId.Value, Name = name });
+                break;
+            case CommandType.Reboot or CommandType.Shutdown:
+                var delay = request.DelaySeconds ?? 0;
+                if (delay is < 0 or > RemoteLimits.MaxPowerDelaySeconds || (request.Message?.Length ?? 0) > MaxMessageLength)
+                {
+                    return Problems.Validation("invalid_payload", $"Задержка 0–{RemoteLimits.MaxPowerDelaySeconds} с, сообщение до {MaxMessageLength} символов.");
+                }
+
+                // Идущую сессию не обрываем по ошибке: только явно (force).
+                if (request.Force != true && await db.Sessions.AnyAsync(x => x.DeviceId == deviceId &&
+                        (x.State == SessionState.Created || x.State == SessionState.Active), ct))
+                {
+                    return Problems.Conflict("session_active", "На ПК идёт сессия. Завершите её или подтвердите принудительно.");
+                }
+
+                payload = ContractJson.ToElement(new PowerPayload { DelaySeconds = delay, Message = request.Message?.Trim() });
+                break;
             default:
-                return Problems.Validation("unsupported_command", "Команда не поддерживается в M0.");
+                return Problems.Validation("unsupported_command", "Команда не поддерживается.");
         }
 
         var ttl = request.TtlSeconds ?? DefaultCommandTtlSeconds;

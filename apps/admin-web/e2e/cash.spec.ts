@@ -384,3 +384,28 @@ test("бар: товар и приход → чек наличными → ит�
   await row.getByRole("button", { name: "Снять с продажи" }).click();
   await expect(row.getByRole("button", { name: "Вернуть в продажу" })).toBeVisible();
 });
+
+test("удалённый доступ: снимок экрана → процессы → завершить процесс", async ({ page }) => {
+  test.skip(!password, "Задайте E2E_PASSWORD");
+  await login(page);
+  // Свободный ПК симулятора (на ПК идёт сессия или нет — снимку и процессам не важно).
+  await page.getByTestId("device-tile").filter({ has: page.locator('[data-status="Idle"]') }).nth(1).click();
+  const remote = page.getByTestId("remote-card");
+  await expect(remote).toBeVisible();
+
+  await remote.getByRole("button", { name: "Снимок экрана" }).click();
+  const shot = page.getByTestId("remote-screenshot").locator("img");
+  await expect(shot).toBeVisible({ timeout: 60_000 });
+  expect(await shot.getAttribute("src")).toMatch(/^data:image\/svg\+xml;base64,/);
+
+  await remote.getByRole("button", { name: "Процессы" }).click();
+  const proc = page.getByTestId("remote-process").filter({ hasText: "Discord" });
+  await expect(proc).toBeVisible({ timeout: 60_000 });
+  page.once("dialog", (d) => void d.accept());
+  await proc.getByRole("button", { name: "Завершить" }).click();
+  await expect(remote.getByRole("status")).toContainText("Процесс завершён: Discord", { timeout: 60_000 });
+  await expect(page.getByTestId("command-list")).toContainText("Завершение процесса: Discord");
+
+  await page.getByRole("link", { name: "Журнал аудита" }).first().click();
+  await expect(page.getByTestId("audit-table")).toContainText("Снимок экрана");
+});

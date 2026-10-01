@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ClubOS.CloudApi.Api;
 using ClubOS.CloudApi.Data;
 using ClubOS.CloudApi.Domain;
@@ -292,6 +293,11 @@ public sealed class SyncIngestor(ClubOsDbContext db, AuditWriter audit, TimeProv
         command.State = p.State;
         command.Error = p.Error;
         command.UpdatedAtUtc = p.AtUtc;
+        if (p.State == CommandState.Succeeded && p.Output is { ValueKind: JsonValueKind.Object } output)
+        {
+            var raw = output.GetRawText();
+            command.ResultJson = raw.Length <= RemoteLimits.MaxOutputChars ? raw : null;
+        }
         var result = p.State switch
         {
             CommandState.Succeeded => AuditResults.Success,

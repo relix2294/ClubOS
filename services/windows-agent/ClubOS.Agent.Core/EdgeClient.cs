@@ -39,8 +39,12 @@ public sealed class EdgeClient(HttpClient http, AgentIdentityStore identity, Tim
         SendAsync<CertificateRenewResponse>(HttpMethod.Post, "agent/v1/renew", request, ct);
 
     public Task ReportResultAsync(string commandId, CommandState state, string? error, CancellationToken ct) =>
+        ReportResultAsync(commandId, state, error, null, ct);
+
+    public Task ReportResultAsync(string commandId, CommandState state, string? error, System.Text.Json.JsonElement? output,
+        CancellationToken ct) =>
         SendAsync<object>(HttpMethod.Post, $"agent/v1/commands/{Uri.EscapeDataString(commandId)}/result",
-            new AgentCommandResultRequest { State = state, Error = error }, ct);
+            new AgentCommandResultRequest { State = state, Error = error, Output = output }, ct);
 
     private async Task<T> SendAsync<T>(HttpMethod method, string path, object? body, CancellationToken ct)
     {

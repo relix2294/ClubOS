@@ -52,11 +52,14 @@ if (OperatingSystem.IsWindows())
     builder.Services.AddSingleton<IUserPresenter>(sp => sp.GetRequiredService<SessionHostPresenter>());
     builder.Services.AddHostedService(sp => sp.GetRequiredService<SessionHostPresenter>());
     builder.Services.AddHostedService<SessionHostLauncher>();
+    builder.Services.AddSingleton<IRemoteActions, WindowsRemoteActions>();
 }
 else
 {
     builder.Services.AddSingleton<IUserPresenter>(sp =>
         new ConsolePresenter(sp.GetRequiredService<ILogger<ConsolePresenter>>()));
+    builder.Services.AddSingleton<IRemoteActions>(sp =>
+        new SimulatedRemoteActions(Environment.MachineName, sp.GetRequiredService<TimeProvider>()));
 }
 
 builder.Services.AddSingleton(sp =>

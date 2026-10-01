@@ -209,6 +209,7 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.Property(x => x.CommandType).HasConversion<string>();
             e.Property(x => x.State).HasConversion<string>();
             e.Property(x => x.PayloadJson).HasColumnType("jsonb");
+            e.Property(x => x.ResultJson).HasColumnType("jsonb");
             e.HasOne<Device>().WithMany().HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Restrict);
         });
 

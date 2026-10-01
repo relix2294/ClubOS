@@ -103,7 +103,8 @@ public sealed class AgentHost : IAsyncDisposable
         };
         Runtime = new AgentRuntime(options, identity, new EdgeClient(edge.CreateClient(), identity, TimeProvider.System),
             new BasicInventoryProvider(), Presenter,
-            new CommandExecutor(Presenter, new ExecutedCommandStore(dataPath), TimeProvider.System, NullLogger<CommandExecutor>.Instance),
+            new CommandExecutor(Presenter, new ExecutedCommandStore(dataPath), TimeProvider.System, NullLogger<CommandExecutor>.Instance,
+                new SimulatedRemoteActions("PC-IT", TimeProvider.System)),
             new PlayerShellController(options, Presenter, TimeProvider.System, NullLogger<PlayerShellController>.Instance),
             TimeProvider.System, NullLogger<AgentRuntime>.Instance);
         _run = Task.Run(() => Runtime.RunAsync(_cts.Token));

@@ -9,6 +9,9 @@ public static class Permissions
 {
     public const string DevicesView = "devices.view";
     public const string DevicesCommand = "devices.command";
+
+    /// <summary>Удалённый доступ (D-022): снимок экрана, процессы, перезагрузка/выключение ПК.</summary>
+    public const string DevicesRemote = "devices.remote";
     public const string SessionsManage = "sessions.manage";
     public const string AuditView = "audit.view";
     public const string EnrollmentManage = "enrollment.manage";
@@ -29,7 +32,7 @@ public static class Permissions
     public static readonly IReadOnlyList<string> All =
     [
         DevicesView, DevicesCommand, SessionsManage, AuditView, EnrollmentManage, StaffManage, LocationsManage,
-        CashOperate, CashRefund, ReportsView
+        CashOperate, CashRefund, ReportsView, DevicesRemote
     ];
 
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> ByRole =
@@ -38,7 +41,8 @@ public static class Permissions
             [Roles.Owner] = All.ToHashSet(),
             [Roles.Admin] = new HashSet<string>
             {
-                DevicesView, DevicesCommand, SessionsManage, AuditView, EnrollmentManage, CashOperate, CashRefund, ReportsView
+                DevicesView, DevicesCommand, SessionsManage, AuditView, EnrollmentManage, CashOperate, CashRefund, ReportsView,
+                DevicesRemote
             },
             [Roles.Operator] = new HashSet<string> { DevicesView, DevicesCommand, SessionsManage, AuditView, CashOperate }
         };

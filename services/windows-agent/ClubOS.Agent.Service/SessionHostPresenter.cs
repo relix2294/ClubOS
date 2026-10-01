@@ -236,12 +236,19 @@ public sealed partial class SessionHostPresenter(ILogger<SessionHostPresenter> l
         }
     }
 
-    private async Task<PresentResult> SendAsync(HostRequest request, CancellationToken ct)
+    /// <summary>Снимок экрана пользователя: делает SessionHost (служба в Session 0 экрана не видит).</summary>
+    public async Task<(PresentResult Result, HostMessage? Reply)> CaptureScreenAsync(CancellationToken ct) =>
+        await SendForReplyAsync(new HostRequest { Id = $"shot-{Guid.NewGuid():N}", Type = SessionHostProtocol.TypeScreenshot }, ct);
+
+    private async Task<PresentResult> SendAsync(HostRequest request, CancellationToken ct) =>
+        (await SendForReplyAsync(request, ct)).Result;
+
+    private async Task<(PresentResult Result, HostMessage? Reply)> SendForReplyAsync(HostRequest request, CancellationToken ct)
     {
         var writer = _writer;
         if (writer is null)
         {
-            return PresentResult.Fail("Нет активной пользовательской сессии: AgentSessionHost не подключён.");
+            return (PresentResult.Fail("Нет активной пользовательской сессии: AgentSessionHost не подключён."), null);
         }
 
         var tcs = new TaskCompletionSource<HostMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -263,15 +270,15 @@ public sealed partial class SessionHostPresenter(ILogger<SessionHostPresenter> l
             }
 
             var reply = await tcs.Task.WaitAsync(ReplyTimeout, ct);
-            return reply.Ok ? PresentResult.Success : PresentResult.Fail(reply.Error ?? "SessionHost сообщил об ошибке.");
+            return (reply.Ok ? PresentResult.Success : PresentResult.Fail(reply.Error ?? "SessionHost сообщил об ошибке."), reply);
         }
         catch (TimeoutException)
         {
-            return PresentResult.Fail("AgentSessionHost не ответил вовремя.");
+            return (PresentResult.Fail("AgentSessionHost не ответил вовремя."), null);
         }
         catch (IOException ex)
         {
-            return PresentResult.Fail($"Ошибка канала SessionHost: {ex.Message}");
+            return (PresentResult.Fail($"Ошибка канала SessionHost: {ex.Message}"), null);
         }
         finally
         {

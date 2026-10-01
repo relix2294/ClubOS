@@ -67,7 +67,7 @@ export interface PendingDisklessView {
 
 // ---- Команды (ТЗ §10.2, §24.3) ----
 
-export type CommandType = "ShowMessage" | "LockTestMode";
+export type CommandType = "ShowMessage" | "LockTestMode" | "Screenshot" | "ListProcesses" | "KillProcess" | "Reboot" | "Shutdown";
 
 export type CommandState =
   | "Queued"
@@ -110,7 +110,40 @@ export interface CommandView {
   expiresAtUtc: string;
   updatedAtUtc: string;
   error: string | null;
-  payload: ShowMessagePayload | LockTestModePayload;
+  payload: ShowMessagePayload | LockTestModePayload | KillProcessPayload | PowerPayload | Record<string, never>;
+  /** Есть результат (снимок экрана, процессы) — читать через GET /commands/{id}. */
+  hasResult: boolean;
+  /** Только в ответе GET /commands/{id} (удалённый доступ, D-022). */
+  result?: ScreenshotOutput | ProcessListOutput | null;
+}
+
+export interface KillProcessPayload {
+  processId: number;
+  name: string;
+}
+
+export interface PowerPayload {
+  delaySeconds: number;
+  message?: string | null;
+}
+
+export interface ScreenshotOutput {
+  mime: string;
+  dataBase64: string;
+  width: number;
+  height: number;
+  capturedAtUtc: string;
+}
+
+export interface ProcessInfo {
+  processId: number;
+  name: string;
+  memoryMb: number;
+  windowTitle: string | null;
+}
+
+export interface ProcessListOutput {
+  processes: ProcessInfo[];
 }
 
 // ---- Сессии (ТЗ §12) ----
@@ -218,6 +251,7 @@ export type StaffRole = "Owner" | "Admin" | "Operator";
 export type Permission =
   | "devices.view"
   | "devices.command"
+  | "devices.remote"
   | "sessions.manage"
   | "audit.view"
   | "enrollment.manage"

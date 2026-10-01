@@ -106,6 +106,104 @@ public class CommandExecutorTests : IDisposable
         Assert.True(_presenter.IsLocked);
     }
 
+    // ---- Удалённый доступ (D-022) ----
+
+    private readonly List<(CommandState State, string? Error, System.Text.Json.JsonElement? Output)> _full = [];
+
+    private CommandEnvelope Remote(CommandType type, object? payload = null, string id = "cmd_r") => Show(id) with
+    {
+        CommandType = type,
+        Payload = ContractJson.ToElement(payload ?? new { })
+    };
+
+    private Task RunRemote(CommandEnvelope command, IRemoteActions? remote) =>
+        new CommandExecutor(_presenter, new ExecutedCommandStore(_dir.Path), _time, NullLogger<CommandExecutor>.Instance, remote)
+            .ExecuteAsync("dev_1", command, (s, e, o) =>
+            {
+                _full.Add((s, e, o));
+                return Task.CompletedTask;
+            }, CancellationToken.None);
+
+    [Fact]
+    public async Task Screenshot_returns_image_output_only_with_success()
+    {
+        await RunRemote(Remote(CommandType.Screenshot), new SimulatedRemoteActions("PC-01", _time));
+        Assert.Null(_full[0].Output); // Acknowledged — без данных
+        var done = _full[^1];
+        Assert.Equal(CommandState.Succeeded, done.State);
+        var shot = ContractJson.FromElement<ScreenshotOutput>(done.Output!.Value);
+        Assert.Equal("image/svg+xml", shot.Mime);
+        Assert.Contains("PC-01", System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(shot.DataBase64)));
+    }
+
+    [Fact]
+    public async Task Process_list_and_kill_with_protection()
+    {
+        var remote = new SimulatedRemoteActions("PC-01", _time);
+        await RunRemote(Remote(CommandType.ListProcesses, id: "cmd_l"), remote);
+        var list = ContractJson.FromElement<ProcessListOutput>(_full[^1].Output!.Value).Processes;
+        var game = list.Single(p => p.Name == "cs2");
+
+        await RunRemote(Remote(CommandType.KillProcess, new KillProcessPayload { ProcessId = game.ProcessId, Name = "winlogon" }, "cmd_k1"), remote);
+        Assert.Equal(CommandState.Failed, _full[^1].State);
+        Assert.Contains("системный", _full[^1].Error);
+
+        await RunRemote(Remote(CommandType.KillProcess, new KillProcessPayload { ProcessId = game.ProcessId, Name = "cs2" }, "cmd_k2"), remote);
+        Assert.Equal(CommandState.Succeeded, _full[^1].State);
+        Assert.DoesNotContain(ContractJson.FromElement<ProcessListOutput>(remote.ListProcesses().Output!.Value).Processes, p => p.Name == "cs2");
+
+        // PID занят другим именем — отказ.
+        await RunRemote(Remote(CommandType.KillProcess, new KillProcessPayload { ProcessId = 4120, Name = "chrome" }, "cmd_k3"), remote);
+        Assert.Equal(CommandState.Failed, _full[^1].State);
+    }
+
+    [Theory]
+    [InlineData("ClubOS.Agent.SessionHost")]
+    [InlineData("LSASS")]
+    [InlineData("explorer")]
+    public void System_and_clubos_processes_are_protected(string name) => Assert.True(ProtectedProcesses.IsProtected(name));
+
+    [Fact]
+    public async Task Power_validates_delay_and_works_without_ui()
+    {
+        var remote = new SimulatedRemoteActions("PC-01", _time);
+        await RunRemote(Remote(CommandType.Reboot, new PowerPayload { DelaySeconds = 9999 }, "cmd_p1"), remote);
+        Assert.Equal(CommandState.Failed, _full[^1].State);
+        await RunRemote(Remote(CommandType.Shutdown, new PowerPayload { DelaySeconds = 30, Message = "Закрываемся" }, "cmd_p2"), remote);
+        Assert.Equal(CommandState.Succeeded, _full[^1].State);
+        Assert.Equal(0, _presenter.Shown);
+    }
+
+    [Fact]
+    public async Task Remote_commands_fail_where_remote_access_is_unavailable()
+    {
+        await RunRemote(Remote(CommandType.Screenshot), remote: null);
+        Assert.Equal(CommandState.Failed, _full[^1].State);
+        Assert.Contains("недоступен", _full[^1].Error);
+    }
+
+    [Fact]
+    public async Task Oversized_output_is_not_sent()
+    {
+        await RunRemote(Remote(CommandType.Screenshot), new HugeScreenshot());
+        Assert.Equal(CommandState.Failed, _full[^1].State);
+        Assert.Null(_full[^1].Output);
+    }
+
+    private sealed class HugeScreenshot : IRemoteActions
+    {
+        public Task<RemoteResult> ScreenshotAsync(CancellationToken ct) => Task.FromResult(RemoteResult.Success(new ScreenshotOutput
+        {
+            Mime = "image/jpeg",
+            DataBase64 = new string('A', RemoteLimits.MaxOutputChars + 1),
+            CapturedAtUtc = DateTimeOffset.UtcNow
+        }));
+
+        public RemoteResult ListProcesses() => RemoteResult.Done;
+        public RemoteResult KillProcess(int processId, string name) => RemoteResult.Done;
+        public RemoteResult Power(bool reboot, int delaySeconds, string? message) => RemoteResult.Done;
+    }
+
     private sealed class RecordingPresenter : IUserPresenter
     {
         public int Shown { get; private set; }

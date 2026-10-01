@@ -27,6 +27,9 @@ public sealed record AgentCommandResultRequest
 {
     public required CommandState State { get; init; }
     public string? Error { get; init; }
+
+    /// <summary>Данные результата (снимок экрана, список процессов) — только с Succeeded, не больше <see cref="RemoteLimits.MaxOutputChars"/>.</summary>
+    public System.Text.Json.JsonElement? Output { get; init; }
 }
 
 /// <summary>

@@ -115,7 +115,8 @@ for (var i = 1; i <= opts.Count; i++)
     var shell = new PlayerShellController(agentOptions, presenter, time, loggerFactory.CreateLogger<PlayerShellController>());
     var runtime = new AgentRuntime(agentOptions, identity, new EdgeClient(edgeHttp, identity, time),
         new SimulatedInventory(name, i), presenter,
-        new CommandExecutor(presenter, new ExecutedCommandStore(dataPath), time, loggerFactory.CreateLogger<CommandExecutor>()),
+        new CommandExecutor(presenter, new ExecutedCommandStore(dataPath), time, loggerFactory.CreateLogger<CommandExecutor>(),
+            new SimulatedRemoteActions(name, time)),
         shell, time, loggerFactory.CreateLogger<AgentRuntime>());
     devices.Add(new SimDevice(i, name, runtime, presenter));
 }

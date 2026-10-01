@@ -11,12 +11,14 @@ import {
   type CommandView,
   type DeviceView,
   type ExtendSessionRequest,
+  type KillProcessPayload,
   type LockTestModePayload,
   type SessionView,
   type ShowMessagePayload,
   type StartSessionRequest,
 } from "@clubos/contracts";
 import { useShell } from "@/components/AppShell";
+import { RemoteCard } from "@/components/RemoteCard";
 import { ClientPicker } from "@/components/ClientPicker";
 import { useSessionClock } from "@/components/SessionTimer";
 import { CommandStateBadge, DeviceStatusBadge, SessionStateBadge } from "@/components/StatusBadge";
@@ -61,6 +63,7 @@ export default function DevicePage() {
             <InventoryCard device={device.data} timezone={location.timezone} />
             <SessionCard device={device.data} onChange={device.refresh} />
             <CommandsCard deviceId={deviceId} timezone={location.timezone} />
+            {can("devices.remote") && <RemoteCard device={device.data} />}
             {can("audit.view") && <DeviceAuditCard deviceId={deviceId} timezone={location.timezone} />}
             {can("enrollment.manage") && <RevokeCard device={device.data} />}
           </div>
@@ -420,9 +423,13 @@ function CommandsCard({ deviceId, timezone }: { deviceId: string; timezone: stri
                 <span className="font-medium">
                   {c.commandType === "ShowMessage"
                     ? `«${(c.payload as ShowMessagePayload).title}»`
-                    : (c.payload as LockTestModePayload).lock
-                      ? "Блокировка: вкл"
-                      : "Блокировка: выкл"}
+                    : c.commandType === "LockTestMode"
+                      ? (c.payload as LockTestModePayload).lock
+                        ? "Блокировка: вкл"
+                        : "Блокировка: выкл"
+                      : c.commandType === "KillProcess"
+                        ? `${t.remote.commandTypes.KillProcess}: ${(c.payload as KillProcessPayload).name}`
+                        : t.remote.commandTypes[c.commandType]}
                 </span>
               </div>
               <div className="text-xs text-slate-500">

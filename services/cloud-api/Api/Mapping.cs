@@ -44,7 +44,13 @@ public static class Mapping
 
     public static CommandView ToView(this DeviceCommand c) => new(
         c.Id, c.CommandType, c.DeviceId, c.State, c.IssuedBy, c.IssuedAtUtc, c.ExpiresAtUtc, c.UpdatedAtUtc, c.Error,
-        JsonDocument.Parse(c.PayloadJson).RootElement.Clone());
+        JsonDocument.Parse(c.PayloadJson).RootElement.Clone(), c.ResultJson is not null);
+
+    /// <summary>Команда с результатом (снимок экрана может весить сотни КБ — только по запросу одной команды).</summary>
+    public static CommandView ToViewWithResult(this DeviceCommand c) => c.ToView() with
+    {
+        Result = c.ResultJson is null ? null : JsonDocument.Parse(c.ResultJson).RootElement.Clone()
+    };
 
     public static SessionView ToView(this Session s) => new(
         s.Id, s.DeviceId, s.State, s.Origin, s.RequestedAtUtc, s.StartedAtUtc, s.EndRequestedAtUtc, s.EndedAtUtc,

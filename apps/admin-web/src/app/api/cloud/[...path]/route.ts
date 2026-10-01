@@ -40,6 +40,7 @@ const ALLOWED = [
   /^locations\/[\w-]+\/(products|sales)$/,
   /^products\/[\w-]+(\/(stock|movements))?$/,
   /^sales\/[\w-]+\/refund$/,
+  /^commands\/[\w-]+$/,
   /^clients$/,
   /^clients\/[\w-]+(\/(topups|adjustments))?$/,
 ];
