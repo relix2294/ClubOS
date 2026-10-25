@@ -51,7 +51,7 @@ public class DisklessTests(CloudFixture cloud)
         Assert.Null(await Candidate(owner, location, Mac));
         Assert.Null(first.Presenter.Shell?.Notice);
 
-        // Гонка (найдена на Windows): отчёт Edge, отправленный до подтверждения, завёл кандидата заново. Такой MAC не
+        // Гонка: отчёт Edge, отправленный до подтверждения, завёл кандидата заново. Такой MAC не
         // показывается в «Ожидают подтверждения».
         var orgId = (await owner.GetJsonAsync("/api/v1/me")).GetProperty("user").Str("organizationId");
         var edgeId = edge.Service<ClubOS.EdgeController.Storage.EdgeIdentityStore>().Current!.EdgeId;

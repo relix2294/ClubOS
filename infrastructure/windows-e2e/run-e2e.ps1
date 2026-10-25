@@ -83,7 +83,10 @@ function Start-Cloud {
     Wait-Until { (Invoke-RestMethod "$Cloud/health/ready" -TimeoutSec 3) -ne $null } 'Cloud API /health/ready' 120 | Out-Null
 }
 
-function Device { (Api GET "/api/v1/locations/$LocationId/devices") | Where-Object displayName -eq $PcName | Select-Object -First 1 }
+# Invoke-RestMethod отдаёт пустой JSON-массив одним объектом: фильтр `$_ -and` отсекает его.
+function Candidates { @((Api GET "/api/v1/locations/$LocationId/diskless-candidates") | Where-Object { $_ -and -not $_.simulated }) }
+
+function Device { (Api GET "/api/v1/locations/$LocationId/devices") | Where-Object { $_ -and $_.displayName -eq $PcName } | Select-Object -First 1 }
 
 function Wait-Command([string] $commandId) {
     Wait-Until {
@@ -124,9 +127,7 @@ try {
     $fingerprint = (Api GET '/api/v1/pki/ca').fingerprintSha256
     Invoke-Installer ("& '$AgentDir\install-agent.ps1' -Diskless -EdgeUrl 'https://localhost:7443' -EdgeCaFingerprint '$fingerprint' " +
         "-ShellMode Enforced -TechnicianPin (ConvertTo-SecureString '246810' -AsPlainText -Force) -SourceDir '$AgentDir'")
-    $candidate = Wait-Until {
-        Api GET "/api/v1/locations/$LocationId/diskless-candidates" | Where-Object { -not $_.simulated } | Select-Object -First 1
-    } 'бездисковый ПК в «Ожидают подтверждения»' 120
+    $candidate = Wait-Until { Candidates | Select-Object -First 1 } 'бездисковый ПК в «Ожидают подтверждения»' 120
     $macs = Get-NetAdapter | Where-Object Status -eq 'Up' | ForEach-Object { ($_.MacAddress -replace '-', ':').ToUpperInvariant() }
     Write-Host "Кандидат: MAC $($candidate.mac), hostname $($candidate.hostname); MAC этой машины: $($macs -join ', ')"
     if ($candidate.mac.ToUpperInvariant() -notin $macs) { throw "MAC кандидата $($candidate.mac) не принадлежит сетевым картам этой машины" }
@@ -142,7 +143,7 @@ try {
     $session = Api POST "/api/v1/devices/$deviceId/sessions" @{ durationMinutes = 1 }
     Wait-Until { (Device).status -eq 'Active' } 'ПК в сессии' 60 | Out-Null
     $ended = Wait-Until {
-        Api GET "/api/v1/devices/$deviceId/sessions" | Where-Object { $_.sessionId -eq $session.sessionId -and $_.state -eq 'Ended' }
+        Api GET "/api/v1/devices/$deviceId/sessions" | Where-Object { $_ -and $_.sessionId -eq $session.sessionId -and $_.state -eq 'Ended' }
     } 'сессия завершена по лимиту' 150
     Write-Host "Итог: $($ended.totalMinorUnits), причина: $($ended.endReason)"
     if ($ended.totalMinorUnits -ne 200) { throw "Ожидался итог 200 (2,00 TJS), получено $($ended.totalMinorUnits)" }
@@ -164,7 +165,7 @@ try {
     Restart-Service -Name ClubOSAgent
     Wait-Until { $d = Device; $d.deviceId -eq $deviceId -and $d.status -eq 'Idle' -and (Utc $d.lastHeartbeatUtc) -gt $since.AddSeconds(3) } `
         'ПК снова на связи после перезагрузки' 120 | Out-Null
-    $pending = @(Api GET "/api/v1/locations/$LocationId/diskless-candidates" | Where-Object { -not $_.simulated })
+    $pending = Candidates
     if ($pending.Count -ne 0) {
         $pending | ConvertTo-Json -Depth 4 | Write-Host
         Write-Host "Устройство: $((Device) | ConvertTo-Json -Depth 3 -Compress)"
@@ -194,16 +195,14 @@ try {
     Wait-Until { (& $EdgeCli sessions --active | Out-String) -notmatch $offlineSessionId } 'Edge завершил сессию без Cloud' 150 | Out-Null
     Start-Cloud
     $synced = Wait-Until {
-        Api GET "/api/v1/devices/$deviceId/sessions" | Where-Object { $_.sessionId -eq $offlineSessionId -and $_.state -eq 'Ended' }
+        Api GET "/api/v1/devices/$deviceId/sessions" | Where-Object { $_ -and $_.sessionId -eq $offlineSessionId -and $_.state -eq 'Ended' }
     } 'офлайн-сессия дошла до Cloud' 120
     if ($synced.totalMinorUnits -ne 200) { throw "Офлайн-итог $($synced.totalMinorUnits), ожидалось 200" }
 
     Step '11. Удаление ПК: после перезагрузки снова ждёт подтверждения'
     Api POST "/api/v1/devices/$deviceId/revoke" | Out-Null
     Restart-Service -Name ClubOSAgent
-    Wait-Until {
-        Api GET "/api/v1/locations/$LocationId/diskless-candidates" | Where-Object { -not $_.simulated -and $_.mac -eq $candidate.mac }
-    } 'удалённый ПК снова в «Ожидают подтверждения»' 150 | Out-Null
+    Wait-Until { Candidates | Where-Object mac -eq $candidate.mac } 'удалённый ПК снова в «Ожидают подтверждения»' 150 | Out-Null
 
     Write-Host "`nВСЕ ПРОВЕРКИ НА WINDOWS ПРОЙДЕНЫ" -ForegroundColor Green
 }
