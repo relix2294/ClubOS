@@ -284,9 +284,9 @@ public static class BookingEndpoints
                 return Problems.Conflict("booking_overlap", "На это время ПК уже забронирован.");
             }
             catch (DbUpdateException ex) when (attempt < 5 && ex.InnerException is Npgsql.PostgresException
-                                               {
-                                                   SqlState: Npgsql.PostgresErrorCodes.DeadlockDetected or Npgsql.PostgresErrorCodes.SerializationFailure
-                                               })
+            {
+                SqlState: Npgsql.PostgresErrorCodes.DeadlockDetected or Npgsql.PostgresErrorCodes.SerializationFailure
+            })
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(20 * attempt), ct);
             }
