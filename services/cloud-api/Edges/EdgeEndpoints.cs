@@ -377,6 +377,14 @@ public static class EdgeEndpoints
             .Select(x => x.HardwareId!).ToListAsync(ct);
         var existing = await db.PendingDisklessDevices.Where(x => x.LocationId == edge.LocationId && ids.Contains(x.HardwareId))
             .ToDictionaryAsync(x => x.HardwareId, ct);
+        // Отчёт Edge, отправленный до подтверждения, мог прийти одновременно с ним и снова завести кандидата для уже
+        // подтверждённого MAC: такие записи убираются при каждом отчёте (найдено проверкой на Windows, CI windows-e2e).
+        foreach (var stale in existing.Values.Where(x => bound.Contains(x.HardwareId)).ToList())
+        {
+            db.PendingDisklessDevices.Remove(stale);
+            existing.Remove(stale.HardwareId);
+        }
+
         var now = time.GetUtcNow();
         foreach (var (candidate, hardwareId) in seen.Where(x => !bound.Contains(x.HardwareId!)))
         {

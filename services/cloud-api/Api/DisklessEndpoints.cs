@@ -55,8 +55,10 @@ public static class DisklessEndpoints
             return Problems.NotFound("Локация");
         }
 
+        // MAC, уже привязанный к действующему ПК, не показывается как «новый» (гонка отчёта Edge и подтверждения).
         var rows = await db.PendingDisklessDevices.AsNoTracking()
-            .Where(x => x.TenantId == staff.TenantId && x.LocationId == locationId)
+            .Where(x => x.TenantId == staff.TenantId && x.LocationId == locationId &&
+                        !db.Devices.Any(d => d.TenantId == x.TenantId && d.RevokedAtUtc == null && d.HardwareId == x.HardwareId))
             .OrderBy(x => x.FirstSeenUtc).ToListAsync(ct);
         return Results.Ok(rows.Select(x => x.ToView()).ToList());
     }

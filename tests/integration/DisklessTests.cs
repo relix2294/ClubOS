@@ -50,6 +50,28 @@ public class DisklessTests(CloudFixture cloud)
         Assert.Equal(Mac, view.Str("hardwareId"));
         Assert.Null(await Candidate(owner, location, Mac));
         Assert.Null(first.Presenter.Shell?.Notice);
+
+        // Гонка (найдена на Windows): отчёт Edge, отправленный до подтверждения, завёл кандидата заново. Такой MAC не
+        // показывается в «Ожидают подтверждения».
+        var orgId = (await owner.GetJsonAsync("/api/v1/me")).GetProperty("user").Str("organizationId");
+        var edgeId = edge.Service<ClubOS.EdgeController.Storage.EdgeIdentityStore>().Current!.EdgeId;
+        await cloud.WithDb(async db =>
+        {
+            db.PendingDisklessDevices.Add(new ClubOS.CloudApi.Domain.PendingDisklessDevice
+            {
+                Id = $"dlc_stale_{Guid.NewGuid():N}",
+                TenantId = orgId,
+                LocationId = location.LocationId,
+                EdgeId = edgeId,
+                HardwareId = "02AA00000001",
+                MacAddresses = "02AA00000001",
+                Hostname = "stale",
+                FirstSeenUtc = DateTimeOffset.UtcNow,
+                LastSeenUtc = DateTimeOffset.UtcNow
+            });
+            return await db.SaveChangesAsync();
+        });
+        Assert.Null(await Candidate(owner, location, Mac));
         var firstCertificate = first.Identity.Current!.CertificatePem;
 
         // Команда доходит: Edge принимает подпись ключом бездискового ПК.
