@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <!--
+    Интеграционные тесты M0 (ТЗ §5): Cloud API на реальном PostgreSQL 18 (Testcontainers, нужен Docker),
+    Edge Controller и агент in-process. Проверяют сквозной контур, tenant isolation, идемпотентность sync,
+    offline Edge и восстановление после рестарта.
+  -->
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../services/cloud-api/ClubOS.CloudApi.csproj" />
+    <ProjectReference Include="../../services/edge-controller/ClubOS.EdgeController.csproj" />
+    <ProjectReference Include="../../services/windows-agent/ClubOS.Agent.Core/ClubOS.Agent.Core.csproj" />
+  </ItemGroup>
+
+</Project>

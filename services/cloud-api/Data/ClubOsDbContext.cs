@@ -8,14 +8,31 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
     public DbSet<Organization> Organizations => Set<Organization>();
     public DbSet<Location> Locations => Set<Location>();
     public DbSet<Zone> Zones => Set<Zone>();
+    public DbSet<TariffPackage> TariffPackages => Set<TariffPackage>();
+    public DbSet<Booking> Bookings => Set<Booking>();
+    public DbSet<Product> Products => Set<Product>();
+    public DbSet<StockMovement> StockMovements => Set<StockMovement>();
+    public DbSet<Sale> Sales => Set<Sale>();
+    public DbSet<SaleItem> SaleItems => Set<SaleItem>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<MfaRecoveryCode> MfaRecoveryCodes => Set<MfaRecoveryCode>();
+    public DbSet<StaffLocationAccess> StaffLocationAccess => Set<StaffLocationAccess>();
+    public DbSet<MfaChallenge> MfaChallenges => Set<MfaChallenge>();
     public DbSet<Edge> Edges => Set<Edge>();
+    public DbSet<CertificateRecord> Certificates => Set<CertificateRecord>();
     public DbSet<EnrollmentToken> EnrollmentTokens => Set<EnrollmentToken>();
     public DbSet<Device> Devices => Set<Device>();
     public DbSet<DeviceCommand> DeviceCommands => Set<DeviceCommand>();
     public DbSet<Session> Sessions => Set<Session>();
+    public DbSet<EdgeOutboxItem> EdgeOutbox => Set<EdgeOutboxItem>();
     public DbSet<InboxReceipt> InboxReceipts => Set<InboxReceipt>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
+    public DbSet<CashShift> CashShifts => Set<CashShift>();
+    public DbSet<CashOperation> CashOperations => Set<CashOperation>();
+    public DbSet<PendingDisklessDevice> PendingDisklessDevices => Set<PendingDisklessDevice>();
+    public DbSet<Client> Clients => Set<Client>();
+    public DbSet<ClientLedgerEntry> ClientLedger => Set<ClientLedgerEntry>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -30,6 +47,7 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.ToTable("locations");
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.OrganizationId);
+            e.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<Zone>(e =>
@@ -37,6 +55,77 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.ToTable("zones");
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.LocationId);
+            e.Property(x => x.Rounding).HasConversion<string>();
+            e.Property(x => x.PeriodsJson).HasColumnType("jsonb");
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<Product>(e =>
+        {
+            e.ToTable("products");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(60);
+            e.Property(x => x.Category).HasMaxLength(40);
+            e.HasIndex(x => new { x.LocationId, x.Name }).IsUnique();
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Organization>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<StockMovement>(e =>
+        {
+            e.ToTable("stock_movements");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Kind).HasMaxLength(16);
+            e.HasIndex(x => new { x.ProductId, x.CreatedAtUtc });
+            e.HasIndex(x => new { x.LocationId, x.CreatedAtUtc });
+            e.HasOne<Product>().WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<Sale>(e =>
+        {
+            e.ToTable("sales");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Status).HasMaxLength(16);
+            e.HasIndex(x => new { x.ShiftId, x.CreatedAtUtc });
+            e.HasIndex(x => new { x.LocationId, x.CreatedAtUtc });
+            e.HasIndex(x => x.CashOperationId).IsUnique();
+            e.HasOne<CashShift>().WithMany().HasForeignKey(x => x.ShiftId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Client>().WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<SaleItem>(e =>
+        {
+            e.ToTable("sale_items");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(60);
+            e.HasIndex(x => x.SaleId);
+            e.HasIndex(x => x.ProductId);
+            e.HasOne<Sale>().WithMany().HasForeignKey(x => x.SaleId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Product>().WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<Booking>(e =>
+        {
+            e.ToTable("bookings");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Status).HasMaxLength(16);
+            e.Property(x => x.GuestName).HasMaxLength(80);
+            e.Property(x => x.GuestPhone).HasMaxLength(15);
+            e.HasIndex(x => new { x.LocationId, x.StartsAtUtc });
+            e.HasIndex(x => new { x.DeviceId, x.Status, x.StartsAtUtc });
+            e.HasOne<Device>().WithMany().HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Client>().WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Organization>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<TariffPackage>(e =>
+        {
+            e.ToTable("tariff_packages");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ZoneId, x.Name }).IsUnique();
+            e.HasIndex(x => x.LocationId);
+            e.HasOne<Zone>().WithMany().HasForeignKey(x => x.ZoneId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Organization>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<User>(e =>
@@ -45,6 +134,41 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.Email).IsUnique();
             e.HasIndex(x => x.OrganizationId);
+            e.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<RefreshToken>(e =>
+        {
+            e.ToTable("refresh_tokens");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.TokenHash).IsUnique();
+            e.HasIndex(x => x.UserId);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<StaffLocationAccess>(e =>
+        {
+            e.ToTable("staff_location_access");
+            e.HasKey(x => new { x.UserId, x.LocationId });
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<MfaRecoveryCode>(e =>
+        {
+            e.ToTable("mfa_recovery_codes");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.UserId, x.CodeHash }).IsUnique();
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<MfaChallenge>(e =>
+        {
+            e.ToTable("mfa_challenges");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.TokenHash).IsUnique();
+            e.HasIndex(x => x.ExpiresAtUtc);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<Edge>(e =>
@@ -52,6 +176,18 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
             e.ToTable("edges");
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.LocationId);
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<CertificateRecord>(e =>
+        {
+            e.ToTable("certificates");
+            e.HasKey(x => x.Serial);
+            e.Property(x => x.Serial).HasMaxLength(64);
+            e.Property(x => x.SubjectId).HasMaxLength(64);
+            e.Property(x => x.Role).HasMaxLength(32);
+            e.HasIndex(x => x.SubjectId);
+            e.HasIndex(x => x.ExpiresAtUtc).HasFilter("\"RevokedAtUtc\" IS NOT NULL").HasDatabaseName("IX_certificates_revoked");
         });
 
         b.Entity<EnrollmentToken>(e =>
@@ -65,27 +201,54 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
         {
             e.ToTable("devices");
             e.HasKey(x => x.Id);
-            e.HasIndex(x => x.LocationId);
+            e.HasIndex(x => new { x.TenantId, x.LocationId });
             e.Property(x => x.Status).HasConversion<string>();
+            e.Property(x => x.HardwareId).HasMaxLength(32);
+            // Один активный бездисковый ПК на MAC в организации.
+            e.HasIndex(x => new { x.TenantId, x.HardwareId }).IsUnique()
+                .HasFilter("\"HardwareId\" IS NOT NULL AND \"RevokedAtUtc\" IS NULL")
+                .HasDatabaseName("IX_devices_active_hardware");
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Zone>().WithMany().HasForeignKey(x => x.ZoneId).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<DeviceCommand>(e =>
         {
             e.ToTable("device_commands");
-            e.HasKey(x => x.Id);
-            e.HasIndex(x => x.DeviceId);
+            e.HasKey(x => x.Id); // UNIQUE(commandId) — повтор не создаёт вторую команду (CMD-002)
+            e.HasIndex(x => new { x.DeviceId, x.IssuedAtUtc });
+            e.HasIndex(x => new { x.State, x.ExpiresAtUtc });
             e.Property(x => x.CommandType).HasConversion<string>();
             e.Property(x => x.State).HasConversion<string>();
             e.Property(x => x.PayloadJson).HasColumnType("jsonb");
+            e.Property(x => x.ResultJson).HasColumnType("jsonb");
+            e.HasOne<Device>().WithMany().HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<Session>(e =>
         {
             e.ToTable("sessions");
             e.HasKey(x => x.Id);
-            e.HasIndex(x => x.DeviceId);
+            e.HasIndex(x => new { x.DeviceId, x.RequestedAtUtc });
             e.Property(x => x.State).HasConversion<string>();
             e.Property(x => x.Rounding).HasConversion<string>();
+            e.Property(x => x.EndReason).HasMaxLength(32);
+            e.HasIndex(x => x.ClientId);
+            e.HasOne<Client>().WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
+            // Снимок: пакет могут изменить или отключить — без внешнего ключа, название и цена хранятся в сессии.
+            e.Property(x => x.PeriodsJson).HasColumnType("jsonb");
+            e.Property(x => x.PackageName).HasMaxLength(40);
+            e.HasIndex(x => x.PackageId);
+            e.HasOne<Device>().WithMany().HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<EdgeOutboxItem>(e =>
+        {
+            e.ToTable("edge_outbox");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.LocationId, x.AckedAtUtc, x.CreatedAtUtc });
+            e.Property(x => x.Kind).HasConversion<string>();
+            e.Property(x => x.PayloadJson).HasColumnType("jsonb");
         });
 
         b.Entity<InboxReceipt>(e =>
@@ -99,9 +262,77 @@ public sealed class ClubOsDbContext(DbContextOptions<ClubOsDbContext> options) :
         {
             e.ToTable("audit_events");
             e.HasKey(x => x.Id);
-            e.HasIndex(x => x.TenantId);
-            e.HasIndex(x => x.OccurredAtUtc);
-            e.Property(x => x.BeforeAfterJson).HasColumnType("jsonb");
+            e.HasIndex(x => new { x.TenantId, x.OccurredAtUtc });
+            e.HasIndex(x => x.Target);
+            e.Property(x => x.DetailsJson).HasColumnType("jsonb");
+        });
+
+        b.Entity<PendingDisklessDevice>(e =>
+        {
+            e.ToTable("pending_diskless_devices");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.LocationId, x.HardwareId }).IsUnique();
+            e.Property(x => x.HardwareId).HasMaxLength(32);
+            e.Property(x => x.MacAddresses).HasMaxLength(400);
+            e.Property(x => x.Hostname).HasMaxLength(64);
+            e.Property(x => x.Ipv4).HasMaxLength(45);
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<CashShift>(e =>
+        {
+            e.ToTable("cash_shifts");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.TenantId, x.LocationId, x.OpenedAtUtc });
+            // Одна открытая смена на локацию — гарантирует БД, а не только проверка в коде.
+            e.HasIndex(x => x.LocationId).IsUnique().HasFilter("\"ClosedAtUtc\" IS NULL")
+                .HasDatabaseName("IX_cash_shifts_open_per_location");
+            e.Property(x => x.Currency).HasMaxLength(3);
+            e.Property(x => x.CloseNote).HasMaxLength(500);
+            e.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<CashOperation>(e =>
+        {
+            e.ToTable("cash_operations");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ShiftId, x.CreatedAtUtc });
+            e.HasIndex(x => x.SessionId);
+            e.HasIndex(x => new { x.TenantId, x.LocationId, x.CreatedAtUtc });
+            e.HasIndex(x => new { x.TenantId, x.IdempotencyKey }).IsUnique().HasFilter("\"IdempotencyKey\" IS NOT NULL");
+            e.Property(x => x.Kind).HasMaxLength(32);
+            e.Property(x => x.Method).HasMaxLength(16);
+            e.Property(x => x.Currency).HasMaxLength(3);
+            e.Property(x => x.Reason).HasMaxLength(200);
+            e.Property(x => x.IdempotencyKey).HasMaxLength(64);
+            e.HasOne<CashShift>().WithMany().HasForeignKey(x => x.ShiftId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Session>().WithMany().HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => x.ClientId);
+            e.HasOne<Client>().WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<Client>(e =>
+        {
+            e.ToTable("clients");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.TenantId, x.Phone }).IsUnique();
+            e.HasIndex(x => new { x.TenantId, x.DisplayName });
+            e.Property(x => x.Phone).HasMaxLength(15);
+            e.Property(x => x.DisplayName).HasMaxLength(80);
+            e.Property(x => x.Currency).HasMaxLength(3);
+            e.Property(x => x.Note).HasMaxLength(500);
+            e.HasOne<Organization>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<ClientLedgerEntry>(e =>
+        {
+            e.ToTable("client_ledger");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ClientId, x.CreatedAtUtc });
+            e.HasIndex(x => new { x.TenantId, x.CreatedAtUtc });
+            e.Property(x => x.Kind).HasMaxLength(32);
+            e.Property(x => x.Reason).HasMaxLength(200);
+            e.HasOne<Client>().WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

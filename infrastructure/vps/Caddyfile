@@ -1,0 +1,42 @@
+# ClubOS на VPS: HTTPS (Let's Encrypt, автоматически) → Admin Web и Cloud API.
+{
+	email {$CLUBOS_ACME_EMAIL}
+}
+
+{$CLUBOS_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+
+	# Служебное Cloud API (Swagger, OpenAPI, health) снаружи не публикуется.
+	handle /swagger* {
+		respond 404
+	}
+
+	handle /openapi* {
+		respond 404
+	}
+
+	handle /health* {
+		respond 404
+	}
+
+	# Cloud API: Edge Controller'ы клубов (подписанные запросы ClubOS-Sig, long-poll до 25 с)
+	# и staff API (JWT, tenant scope, rate limit на вход) для инструментов вроде Device Simulator.
+	handle /api/v1/* {
+		reverse_proxy cloud-api:8080
+	}
+
+	# Пакеты для Windows: ClubOS-Edge-win-x64.zip, ClubOS-Agent-win-x64.zip, SHA256SUMS.txt, VERSION.txt.
+	handle_path /downloads/* {
+		reverse_proxy downloads:8080
+	}
+
+	# Admin Web, включая его BFF (/api/auth/*, /api/cloud/*).
+	handle {
+		reverse_proxy admin-web:3000
+	}
+}

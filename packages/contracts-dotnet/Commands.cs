@@ -8,7 +8,36 @@ namespace ClubOS.Contracts;
 public enum CommandType
 {
     ShowMessage,
-    LockTestMode
+    LockTestMode,
+
+    /// <summary>Снимок экрана ПК (удалённый доступ, D-022). Результат — <see cref="ScreenshotOutput"/>.</summary>
+    Screenshot,
+
+    /// <summary>Процессы пользователя (не системные). Результат — <see cref="ProcessListOutput"/>.</summary>
+    ListProcesses,
+
+    /// <summary>Завершить процесс пользователя (<see cref="KillProcessPayload"/>). Системные и ClubOS — отказ.</summary>
+    KillProcess,
+
+    /// <summary>Перезагрузка ПК (<see cref="PowerPayload"/>).</summary>
+    Reboot,
+
+    /// <summary>Выключение ПК (<see cref="PowerPayload"/>).</summary>
+    Shutdown
+}
+
+/// <summary>Ограничения удалённого доступа (D-022).</summary>
+public static class RemoteLimits
+{
+    /// <summary>Максимальный размер результата команды (JSON) — снимок экрана JPEG в base64.</summary>
+    public const int MaxOutputChars = 768 * 1024;
+
+    /// <summary>Снимок уменьшается до этой ширины (пропорционально).</summary>
+    public const int ScreenshotMaxWidth = 1280;
+
+    public const int MaxPowerDelaySeconds = 600;
+
+    public const int MaxProcesses = 200;
 }
 
 /// <summary>
@@ -69,6 +98,59 @@ public sealed record LockTestModePayload
     /// <summary>true — включить overlay, false — снять.</summary>
     public required bool Lock { get; init; }
     public string? Reason { get; init; }
+}
+
+/// <summary>Защита от завершения системных процессов и самого ClubOS.</summary>
+public static class ProtectedProcesses
+{
+    private static readonly HashSet<string> Names = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "system", "idle", "smss", "csrss", "wininit", "winlogon", "services", "lsass", "lsaiso", "svchost", "fontdrvhost",
+        "dwm", "explorer", "sihost", "ctfmon", "conhost", "registry", "memory compression", "spoolsv", "taskhostw",
+        "runtimebroker", "searchhost", "startmenuexperiencehost", "shellexperiencehost", "textinputhost", "securityhealthsystray",
+        "msmpeng", "nissrv", "audiodg", "dllhost", "userinit", "logonui", "lockapp"
+    };
+
+    public static bool IsProtected(string name) =>
+        Names.Contains(name) || name.StartsWith("ClubOS", StringComparison.OrdinalIgnoreCase);
+}
+
+public sealed record KillProcessPayload
+{
+    public required int ProcessId { get; init; }
+
+    /// <summary>Имя процесса из списка: защита от повторного использования PID другим процессом.</summary>
+    public required string Name { get; init; }
+}
+
+public sealed record PowerPayload
+{
+    /// <summary>Задержка перед перезагрузкой/выключением (0–600 с), пользователь видит предупреждение Windows.</summary>
+    public int DelaySeconds { get; init; }
+    public string? Message { get; init; }
+}
+
+public sealed record ScreenshotOutput
+{
+    /// <summary>image/jpeg (Windows) или image/svg+xml (симулятор).</summary>
+    public required string Mime { get; init; }
+    public required string DataBase64 { get; init; }
+    public int Width { get; init; }
+    public int Height { get; init; }
+    public required DateTimeOffset CapturedAtUtc { get; init; }
+}
+
+public sealed record ProcessInfo
+{
+    public required int ProcessId { get; init; }
+    public required string Name { get; init; }
+    public long MemoryMb { get; init; }
+    public string? WindowTitle { get; init; }
+}
+
+public sealed record ProcessListOutput
+{
+    public required IReadOnlyList<ProcessInfo> Processes { get; init; }
 }
 
 /// <summary>Результат исполнения команды агентом (ТЗ §10.2 CMD-007: попадает в audit).</summary>

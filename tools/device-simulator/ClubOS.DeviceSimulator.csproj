@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>ClubOS.DeviceSimulator</RootNamespace>
+    <AssemblyName>device-simulator</AssemblyName>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <!--
+    Device Simulator (ТЗ §3.4, DEVIATIONS D-005): N симулированных ПК на ядре реального агента
+    (ClubOS.Agent.Core). Все устройства регистрируются с флагом Simulated и помечаются SIMULATED
+    в Admin Web. Не заменяет обязательный реальный Windows Agent.
+  -->
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../services/windows-agent/ClubOS.Agent.Core/ClubOS.Agent.Core.csproj" />
+  </ItemGroup>
+
+</Project>

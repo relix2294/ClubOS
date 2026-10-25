@@ -49,3 +49,9 @@ edge-data/
 # ---- Logs ----
 logs/
 *.log
+
+# ---- ClubOS runtime data (ключи, identity, SQLite) ----
+services/cloud-api/data/
+agent-data/
+sim-data/
+.ccr-ca.crt
