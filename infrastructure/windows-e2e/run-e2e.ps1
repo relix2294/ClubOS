@@ -165,7 +165,11 @@ try {
     Wait-Until { $d = Device; $d.deviceId -eq $deviceId -and $d.status -eq 'Idle' -and (Utc $d.lastHeartbeatUtc) -gt $since.AddSeconds(3) } `
         'ПК снова на связи после перезагрузки' 120 | Out-Null
     $pending = @(Api GET "/api/v1/locations/$LocationId/diskless-candidates" | Where-Object { -not $_.simulated })
-    if ($pending.Count -ne 0) { throw 'Подтверждённый ПК после перезагрузки снова ждёт подтверждения' }
+    if ($pending.Count -ne 0) {
+        $pending | ConvertTo-Json -Depth 4 | Write-Host
+        Write-Host "Устройство: $((Device) | ConvertTo-Json -Depth 3 -Compress)"
+        throw 'Подтверждённый ПК после перезагрузки снова ждёт подтверждения'
+    }
 
     Step '9. mTLS «только с сертификатом»: -DisableAgentHttp -RequireClientCertificate'
     Invoke-Installer "& '$EdgeDir\install-edge.ps1' -CloudUrl '$Cloud' -SourceDir '$EdgeDir' -DisableAgentHttp -RequireClientCertificate"

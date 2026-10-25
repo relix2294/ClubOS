@@ -148,8 +148,9 @@ public class BookingTests(CloudFixture cloud)
         var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(i =>
             owner.PostAsJsonAsync($"/api/v1/locations/{location.LocationId}/bookings",
                 new { deviceId, startsAt, durationMinutes = 60 + i, guestName = $"Гость {i}" })));
-        Assert.Equal(1, results.Count(r => r.StatusCode == HttpStatusCode.Created));
-        Assert.All(results.Where(r => r.StatusCode != HttpStatusCode.Created), r => Assert.Equal(HttpStatusCode.Conflict, r.StatusCode));
+        var outcomes = await Task.WhenAll(results.Select(async r => $"{(int)r.StatusCode} {await r.Content.ReadAsStringAsync()}"));
+        Assert.True(results.Count(r => r.StatusCode == HttpStatusCode.Created) == 1, string.Join("\n", outcomes));
+        Assert.True(results.All(r => r.StatusCode is HttpStatusCode.Created or HttpStatusCode.Conflict), string.Join("\n", outcomes));
     }
 
     [Fact]

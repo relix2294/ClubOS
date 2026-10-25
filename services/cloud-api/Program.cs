@@ -123,7 +123,15 @@ if (trustForwardedHeaders)
     });
 }
 
-builder.Services.AddProblemDetails();
+// Только в интеграционных тестах: тип и текст исключения в ответе 500, чтобы сбой в CI был виден сразу.
+var exposeExceptions = builder.Environment.IsEnvironment("Testing");
+builder.Services.AddProblemDetails(o => o.CustomizeProblemDetails = ctx =>
+{
+    if (exposeExceptions && ctx.HttpContext.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error is { } error)
+    {
+        ctx.ProblemDetails.Extensions["exception"] = $"{error.GetType().Name}: {error.Message} | {error.InnerException?.Message}";
+    }
+});
 builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("database", tags: ["ready"]);

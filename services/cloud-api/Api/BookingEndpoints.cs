@@ -270,13 +270,26 @@ public static class BookingEndpoints
         db.Bookings.Add(booking);
         audit.Write(staff.TenantId, locationId, staff.Actor, "booking.created", $"device:{device.Id}", AuditResults.Success,
             details: new { bookingId = booking.Id, name, startsAt, endsAt, clientId = client?.Id });
-        try
+        // Одновременные брони одного ПК: ограничение исключения ждёт незавершённые вставки друг друга, и PostgreSQL
+        // может прервать одну из них как deadlock (40P01). Такая вставка повторяется: итог — бронь или 409, не 500.
+        for (var attempt = 1; ; attempt++)
         {
-            await db.SaveChangesAsync(ct);
-        }
-        catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.ExclusionViolation })
-        {
-            return Problems.Conflict("booking_overlap", "На это время ПК уже забронирован.");
+            try
+            {
+                await db.SaveChangesAsync(ct);
+                break;
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.ExclusionViolation })
+            {
+                return Problems.Conflict("booking_overlap", "На это время ПК уже забронирован.");
+            }
+            catch (DbUpdateException ex) when (attempt < 5 && ex.InnerException is Npgsql.PostgresException
+                                               {
+                                                   SqlState: Npgsql.PostgresErrorCodes.DeadlockDetected or Npgsql.PostgresErrorCodes.SerializationFailure
+                                               })
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(20 * attempt), ct);
+            }
         }
 
         return Results.Created($"/api/v1/bookings/{booking.Id}", (await ViewsAsync(db, [booking], ct))[0]);
