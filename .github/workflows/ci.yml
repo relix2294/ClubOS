@@ -148,6 +148,40 @@ jobs:
           name: clubos-windows-agent-selfcontained
           path: out/agent-sc
 
+  # Сквозная проверка на настоящем Windows без симуляторов: Cloud API + Edge и бездисковый агент как службы,
+  # установленные теми же скриптами, что в клубе (infrastructure/windows-e2e/run-e2e.ps1).
+  windows-e2e:
+    name: Windows E2E (Cloud + Edge service + diskless agent service)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Publish Cloud API, Edge and agent (self-contained, as in the club package)
+        shell: pwsh
+        run: |
+          dotnet publish services/cloud-api/ClubOS.CloudApi.csproj -c Release -o out/cloud
+          dotnet publish services/edge-controller/ClubOS.EdgeController.csproj -c Release -r win-x64 --self-contained true -o out/edge
+          dotnet publish services/edge-cli/ClubOS.EdgeCli.csproj -c Release -r win-x64 --self-contained true -o out/edge
+          Copy-Item services/edge-controller/install/*.ps1 out/edge/
+          dotnet publish services/windows-agent/ClubOS.Agent.Service/ClubOS.Agent.Service.csproj -c Release -r win-x64 --self-contained true -o out/agent
+          dotnet publish services/windows-agent/ClubOS.Agent.SessionHost/ClubOS.Agent.SessionHost.csproj -c Release -r win-x64 --self-contained true -o out/agent
+          Copy-Item services/windows-agent/install/*.ps1 out/agent/
+      - name: End-to-end on Windows
+        shell: pwsh
+        run: |
+          ./infrastructure/windows-e2e/run-e2e.ps1 -CloudDir "$PWD/out/cloud" -EdgeDir "$PWD/out/edge" -AgentDir "$PWD/out/agent" `
+            -WorkDir "$env:RUNNER_TEMP/clubos-e2e"
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-e2e-logs
+          path: ${{ runner.temp }}/clubos-e2e/*.log
+
   downloads:
     name: Windows packages for /downloads (built on Linux)
     runs-on: ubuntu-latest
