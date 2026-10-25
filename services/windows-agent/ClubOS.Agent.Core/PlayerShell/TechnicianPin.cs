@@ -17,6 +17,13 @@ public static class TechnicianPin
     private const int Iterations = 210_000;
     private const int MaxIterations = 2_000_000;
 
+    /// <summary>
+    /// PIN из stdin или переменной окружения: без пробелов, переводов строки и BOM. Windows PowerShell 5.1 при
+    /// включённой в Windows кодировке UTF-8 добавляет BOM (U+FEFF) в начало строки, переданной программе через
+    /// конвейер, а string.Trim() его не убирает.
+    /// </summary>
+    public static string NormalizeInput(string raw) => raw.Trim().Trim('\uFEFF').Trim();
+
     public static string? ValidateFormat(string pin) =>
         pin.Length is < MinLength or > MaxLength || !pin.All(char.IsAsciiDigit)
             ? $"PIN — от {MinLength} до {MaxLength} цифр."

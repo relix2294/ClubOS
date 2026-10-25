@@ -113,7 +113,11 @@ if ($TechnicianPin) {
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($TechnicianPin)
     try { $plainPin = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
     finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
-    $hash = $plainPin | & (Join-Path $InstallDir 'ClubOS.Agent.Service.exe') hash-pin
+    # PIN — через переменную окружения процесса, не через конвейер: Windows PowerShell 5.1 с UTF-8 в Windows
+    # добавляет к строке в конвейере BOM, и программа получала бы не тот PIN.
+    $env:CLUBOS_TECHNICIAN_PIN = $plainPin
+    try { $hash = & (Join-Path $InstallDir 'ClubOS.Agent.Service.exe') hash-pin }
+    finally { Remove-Item Env:\CLUBOS_TECHNICIAN_PIN -ErrorAction SilentlyContinue }
     $plainPin = $null
     if ($LASTEXITCODE -ne 0 -or -not $hash) { throw 'PIN техника не принят: нужно 6–12 цифр.' }
     $shell.TechnicianPinHash = ([string]$hash).Trim()

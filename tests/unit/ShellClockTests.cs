@@ -99,6 +99,16 @@ public class ShellClockTests
         Assert.NotEqual(hash, TechnicianPin.Hash("123456")); // соль
     }
 
+    [Fact]
+    public void Technician_pin_input_is_cleaned_of_bom_and_line_breaks()
+    {
+        // Windows PowerShell 5.1 с UTF-8 в Windows: BOM в начале строки из конвейера (ручной тест на Windows, CI windows-e2e).
+        Assert.Equal("246810", TechnicianPin.NormalizeInput("\uFEFF246810\r\n"));
+        Assert.Equal("246810", TechnicianPin.NormalizeInput(" 246810 "));
+        Assert.Null(TechnicianPin.ValidateFormat(TechnicianPin.NormalizeInput("\uFEFF246810\r\n")));
+        Assert.NotNull(TechnicianPin.ValidateFormat("\uFEFF246810"));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
